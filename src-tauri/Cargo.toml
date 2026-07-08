@@ -36,6 +36,10 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Shell",
   "Win32_System_Com",
+  # M3: system info (battery / CPU / memory)
+  "Win32_System_Power",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
   "Foundation",
   "Media_Control",
   "Storage_Streams",

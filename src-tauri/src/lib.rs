@@ -1,4 +1,5 @@
 mod media;
+mod system;
 mod window;
 
 use tauri::Manager;
@@ -61,6 +62,7 @@ pub fn run() {
             media::media_play_pause,
             media::media_next,
             media::media_previous,
+            system::get_system_info,
         ])
         .setup(|app| {
             let win = app
@@ -83,6 +85,10 @@ pub fn run() {
             // Start the Now Playing (SMTC) worker and expose its state.
             let media_state = media::init(app.handle());
             app.manage(media_state);
+
+            // Start the system-info (battery / CPU / memory) sampler.
+            let system_state = system::init(app.handle());
+            app.manage(system_state);
 
             spawn_monitor_watcher(app.handle());
             Ok(())

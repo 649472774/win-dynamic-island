@@ -18,6 +18,12 @@ export function getActiveModules(): IslandModule[] {
     .sort((a, b) => b.priority - a.priority);
 }
 
+/** Every registered module, sorted by priority (used for the panel grid and
+ *  the "loaded modules" footer, independent of pill ownership). */
+export function getAllModules(): IslandModule[] {
+  return [...registry].sort((a, b) => b.priority - a.priority);
+}
+
 /** The single module that owns the collapsed pill (highest priority active). */
 export function getPrimaryModule(): IslandModule | undefined {
   return getActiveModules()[0];

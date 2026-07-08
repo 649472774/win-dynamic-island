@@ -428,3 +428,78 @@ body,
 .np-btn-main:hover:not(:disabled) {
   background: rgba(87, 166, 255, 0.28);
 }
+
+/* ----------------------------- System module ---------------------------- */
+
+/* Full-width card holding three stats (battery / CPU / memory). */
+.sys-tile {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sys-stat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sys-stat-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sys-stat-icon {
+  font-size: 14px;
+  line-height: 1;
+  flex: none;
+}
+
+.sys-stat-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sys-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.sys-bar-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 0.35s ease;
+}
+
+.sys-bar-fill.warn {
+  background: #ff5f57;
+}
+
+.sys-stat-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sys-stat-label.warn {
+  color: #ff8a84;
+}

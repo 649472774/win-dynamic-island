@@ -80,3 +80,29 @@ export function mediaNext(): Promise<void> {
 export function mediaPrevious(): Promise<void> {
   return invoke("media_previous");
 }
+
+/* --------------------------- System info (M3) --------------------------- */
+
+/** Battery / CPU / memory snapshot pushed from Rust (mirrors `SystemInfo`). */
+export interface SystemInfo {
+  hasBattery: boolean;
+  /** 0..100, or -1 when unknown / no battery. */
+  batteryPercent: number;
+  charging: boolean;
+  onAc: boolean;
+  lowBattery: boolean;
+  cpuPercent: number;
+  memPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+}
+
+/** Fetch the current system snapshot (used for the initial render). */
+export function getSystemInfo(): Promise<SystemInfo> {
+  return invoke("get_system_info");
+}
+
+/** Subscribe to live system-info updates. Returns an unlisten function. */
+export function onSystemUpdate(cb: (info: SystemInfo) => void): Promise<UnlistenFn> {
+  return listen<SystemInfo>("system-update", (e) => cb(e.payload));
+}

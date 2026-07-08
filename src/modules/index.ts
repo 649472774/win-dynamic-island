@@ -4,6 +4,12 @@
  */
 import "./clock";
 import "./nowplaying";
+import "./system";
 
-export { getActiveModules, getPrimaryModule, registerModule } from "./registry";
+export {
+  getActiveModules,
+  getAllModules,
+  getPrimaryModule,
+  registerModule,
+} from "./registry";
 export type { IslandModule, IslandModuleProps } from "./types";

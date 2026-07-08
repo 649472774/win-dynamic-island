@@ -13,7 +13,7 @@ import { AnimatePresence, motion, type Transition } from "motion/react";
 import { useIsland, type IslandState } from "../store/island";
 import { useModulesVersion } from "../store/modules";
 import { recenter, revealIsland, setIslandRegion } from "../lib/native";
-import { getActiveModules, getPrimaryModule } from "../modules";
+import { getAllModules, getPrimaryModule } from "../modules";
 import "../modules"; // ensure built-in modules register
 
 /** Target geometry per state, in CSS pixels. */
@@ -107,7 +107,8 @@ export default function Island() {
     toggleExpanded();
   };
 
-  const modules = getActiveModules();
+  const allModules = getAllModules();
+  const tiles = allModules.filter((m) => m.Tile);
   const primary = getPrimaryModule();
   const expanded = state === "expanded";
 
@@ -139,9 +140,13 @@ export default function Island() {
                 <span className="panel-hint">移开鼠标即可收起</span>
               </header>
 
-              {primary ? <primary.Expanded state={state} /> : null}
+              {primary?.Expanded ? <primary.Expanded state={state} /> : null}
 
               <div className="module-grid">
+                {tiles.map((m) => {
+                  const Tile = m.Tile!;
+                  return <Tile key={m.id} state={state} />;
+                })}
                 {UPCOMING.map((m) => (
                   <div className="module-chip" key={m.id}>
                     <span className="chip-icon">{m.icon}</span>
@@ -152,7 +157,7 @@ export default function Island() {
               </div>
 
               <footer className="panel-footer">
-                已加载模块：{modules.map((m) => m.title).join("、")}
+                已加载模块：{allModules.map((m) => m.title).join("、")}
               </footer>
             </motion.div>
           ) : (
@@ -164,7 +169,7 @@ export default function Island() {
               exit={{ opacity: 0 }}
               transition={FADE}
             >
-              {primary ? <primary.Collapsed state={state} /> : null}
+              {primary?.Collapsed ? <primary.Collapsed state={state} /> : null}
             </motion.div>
           )}
         </AnimatePresence>
@@ -176,6 +181,5 @@ export default function Island() {
 /** Placeholder cards showing the roadmap of upcoming modules (M3–M4). */
 const UPCOMING = [
   { id: "volume", icon: "🔊", label: "音量 HUD", soon: "M3" },
-  { id: "battery", icon: "🔋", label: "电量 / 系统", soon: "M3" },
   { id: "shelf", icon: "📎", label: "文件暂存架", soon: "M4" },
 ];
