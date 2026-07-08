@@ -29,6 +29,11 @@ window-vibrancy = "0.7.1"
 # on it directly so we can name the type and poll it to completion on our MTA
 # worker thread (0.3 dropped the inherent blocking `get()`).
 windows-future = "0.3"
+# `windows-core` re-exports the `#[implement]` macro (via windows-implement),
+# which the `windows` 0.62 umbrella crate does NOT expose as a feature. We need
+# it to implement the `IAudioEndpointVolumeCallback` COM interface for
+# event-driven (zero idle cost) volume-change notifications.
+windows-core = "0.62"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
@@ -36,10 +41,15 @@ windows = { version = "0.62.2", features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Shell",
   "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
   # M3: system info (battery / CPU / memory)
   "Win32_System_Power",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  # M3: volume HUD (WASAPI endpoint volume + change callback)
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
   "Foundation",
   "Media_Control",
   "Storage_Streams",

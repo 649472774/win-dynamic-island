@@ -5,6 +5,7 @@
 import "./clock";
 import "./nowplaying";
 import "./system";
+import "./volume";
 
 export {
   getActiveModules,

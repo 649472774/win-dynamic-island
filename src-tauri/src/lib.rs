@@ -1,5 +1,6 @@
 mod media;
 mod system;
+mod volume;
 mod window;
 
 use tauri::Manager;
@@ -63,6 +64,9 @@ pub fn run() {
             media::media_next,
             media::media_previous,
             system::get_system_info,
+            volume::get_volume,
+            volume::set_volume,
+            volume::set_muted,
         ])
         .setup(|app| {
             let win = app
@@ -89,6 +93,10 @@ pub fn run() {
             // Start the system-info (battery / CPU / memory) sampler.
             let system_state = system::init(app.handle());
             app.manage(system_state);
+
+            // Start the volume watcher (event-driven HUD).
+            let volume_state = volume::init(app.handle());
+            app.manage(volume_state);
 
             spawn_monitor_watcher(app.handle());
             Ok(())

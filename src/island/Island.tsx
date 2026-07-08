@@ -23,6 +23,9 @@ const SIZES: Record<IslandState, { w: number; h: number; r: number }> = {
   expanded: { w: 520, h: 384, r: 30 },
 };
 
+/** Geometry for a transient HUD (e.g. the volume slider) over the pill. */
+const HUD_SIZE = { w: 300, h: 46, r: 23 };
+
 /** Spring tuned for a snappy ~250–320ms morph at 60fps. */
 const MORPH: Transition = { type: "spring", stiffness: 380, damping: 32, mass: 0.9 };
 const FADE: Transition = { duration: 0.16, ease: "easeOut" };
@@ -31,6 +34,7 @@ export default function Island() {
   const state = useIsland((s) => s.state);
   const setState = useIsland((s) => s.setState);
   const toggleExpanded = useIsland((s) => s.toggleExpanded);
+  const hud = useIsland((s) => s.hud);
   // Re-evaluate the active module set when a module's activeness flips (e.g.
   // music starts/stops) even if the island state itself hasn't changed.
   useModulesVersion((s) => s.v);
@@ -39,7 +43,15 @@ export default function Island() {
   const revealed = useRef(false);
   const collapseTimer = useRef<number | null>(null);
 
-  const size = SIZES[state];
+  const allModules = getAllModules();
+  const tiles = allModules.filter((m) => m.Tile);
+  const primary = getPrimaryModule();
+  const expanded = state === "expanded";
+  // A HUD overrides the collapsed / hover pill, but never the expanded panel.
+  const hudModule = hud ? allModules.find((m) => m.id === hud.kind) : undefined;
+  const showingHud = !expanded && !!hudModule?.Hud;
+
+  const size = showingHud ? HUD_SIZE : SIZES[state];
 
   /** Measure the pill and push its rounded rect (in physical px) to Rust. */
   const reportRegion = useCallback(() => {
@@ -107,11 +119,6 @@ export default function Island() {
     toggleExpanded();
   };
 
-  const allModules = getAllModules();
-  const tiles = allModules.filter((m) => m.Tile);
-  const primary = getPrimaryModule();
-  const expanded = state === "expanded";
-
   return (
     <div className="island-root">
       <motion.div
@@ -160,6 +167,20 @@ export default function Island() {
                 已加载模块：{allModules.map((m) => m.title).join("、")}
               </footer>
             </motion.div>
+          ) : showingHud ? (
+            <motion.div
+              key={`hud-${hud!.kind}`}
+              className="pill-content hud"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={FADE}
+            >
+              {(() => {
+                const HudView = hudModule!.Hud!;
+                return <HudView state={state} />;
+              })()}
+            </motion.div>
           ) : (
             <motion.div
               key="collapsed"
@@ -178,8 +199,7 @@ export default function Island() {
   );
 }
 
-/** Placeholder cards showing the roadmap of upcoming modules (M3–M4). */
+/** Placeholder cards showing the roadmap of upcoming modules (M4). */
 const UPCOMING = [
-  { id: "volume", icon: "🔊", label: "音量 HUD", soon: "M3" },
   { id: "shelf", icon: "📎", label: "文件暂存架", soon: "M4" },
 ];

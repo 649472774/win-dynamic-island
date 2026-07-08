@@ -106,3 +106,32 @@ export function getSystemInfo(): Promise<SystemInfo> {
 export function onSystemUpdate(cb: (info: SystemInfo) => void): Promise<UnlistenFn> {
   return listen<SystemInfo>("system-update", (e) => cb(e.payload));
 }
+
+/* ----------------------------- Volume (M3) ----------------------------- */
+
+/** Default-render-endpoint volume snapshot (mirrors `VolumeInfo`). */
+export interface VolumeInfo {
+  /** 0..100. */
+  level: number;
+  muted: boolean;
+}
+
+/** Fetch the current volume (used for the initial render / panel tile). */
+export function getVolume(): Promise<VolumeInfo> {
+  return invoke("get_volume");
+}
+
+/** Subscribe to volume changes (fires only when the level or mute changes). */
+export function onVolumeChanged(cb: (info: VolumeInfo) => void): Promise<UnlistenFn> {
+  return listen<VolumeInfo>("volume-changed", (e) => cb(e.payload));
+}
+
+/** Set the master volume level (0..100). */
+export function setVolume(level: number): Promise<void> {
+  return invoke("set_volume", { level: Math.max(0, Math.min(100, Math.round(level))) });
+}
+
+/** Mute / unmute the default render endpoint. */
+export function setMuted(muted: boolean): Promise<void> {
+  return invoke("set_muted", { muted });
+}

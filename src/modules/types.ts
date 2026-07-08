@@ -26,6 +26,10 @@ export interface IslandModule {
   /** Optional compact card rendered in the expanded panel's module grid,
    *  regardless of pill ownership (e.g. battery / system stats). */
   Tile?: FC<IslandModuleProps>;
+  /** Optional transient-HUD renderer. Shown briefly over the pill when this
+   *  module fires a HUD (e.g. the volume slider on a volume change), driven by
+   *  the island store's `hud` slice rather than by pill ownership. */
+  Hud?: FC<IslandModuleProps>;
   /** Optional: return false to hide the module from the pill / active set.
    *  Panel-only modules (with just a `Tile`) return false so they never win
    *  the collapsed slot. */
