@@ -1,0 +1,430 @@
+/* ------------------------------------------------------------------ *
+ * Dynamic Island — global styles
+ * The window is fully transparent and the non-pill area is click-through
+ * (native region). We intentionally do NOT use an OS full-window acrylic
+ * backdrop (it can't be clipped to the pill on Win11 and would cover the
+ * desktop), so the pill is a self-contained translucent dark-glass capsule:
+ * the desktop still shows faintly through it, but nothing is blocked.
+ * ------------------------------------------------------------------ */
+
+:root {
+  --glass-bg: rgba(18, 18, 24, 0.72);
+  --glass-bg-strong: rgba(20, 20, 28, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.16);
+  --text: rgba(255, 255, 255, 0.94);
+  --text-dim: rgba(255, 255, 255, 0.55);
+  --text-faint: rgba(255, 255, 255, 0.35);
+  --accent: #57a6ff;
+  --accent-soft: rgba(87, 166, 255, 0.16);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  color: var(--text);
+}
+
+/* Full-window flex container: pill hugs the top, horizontally centered. */
+.island-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: transparent;
+}
+
+/* The morphing pill / panel. */
+.island-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--glass-highlight);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  will-change: width, height, border-radius;
+}
+
+.island-pill.state-expanded {
+  background: var(--glass-bg-strong);
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.pill-content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pill-content.expanded {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 14px 16px;
+  gap: 10px;
+}
+
+/* ----------------------------- Clock module ----------------------- */
+
+.mod-clock-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text);
+}
+
+.clock-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+.mod-clock-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 2px 4px;
+}
+
+.big-time {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.big-time .seconds {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.big-date {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* ----------------------------- Panel chrome ----------------------- */
+
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text);
+}
+
+.panel-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.module-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.chip-icon {
+  font-size: 16px;
+}
+
+.chip-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.chip-soon {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.panel-footer {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: auto;
+}
+
+/* -------------------------- Now Playing module -------------------------- */
+
+/* Collapsed pill: mini cover + title (+ tiny equalizer while playing). */
+.mod-np-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 0 4px;
+}
+
+.np-cover-mini {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.np-icon {
+  font-size: 15px;
+  line-height: 1;
+  flex: none;
+}
+
+.np-title-mini {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+
+/* Three little bars that bounce while audio is playing. */
+.np-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  flex: none;
+}
+
+.np-eq i {
+  width: 2.5px;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: np-eq 0.9s ease-in-out infinite;
+}
+
+.np-eq i:nth-child(1) {
+  animation-delay: 0s;
+}
+.np-eq i:nth-child(2) {
+  animation-delay: 0.25s;
+}
+.np-eq i:nth-child(3) {
+  animation-delay: 0.5s;
+}
+
+@keyframes np-eq {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 12px;
+  }
+}
+
+/* Expanded panel body. */
+.mod-np-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.np-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.np-cover {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+  object-fit: cover;
+  flex: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+}
+
+.np-cover-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.np-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.np-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.np-artist {
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-album {
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.np-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.np-bar-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 0.25s linear;
+}
+
+.np-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.np-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.np-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.np-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.np-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.np-btn-main {
+  width: 48px;
+  height: 48px;
+  font-size: 19px;
+  background: var(--accent-soft);
+  border-color: rgba(87, 166, 255, 0.3);
+  color: #cfe4ff;
+}
+
+.np-btn-main:hover:not(:disabled) {
+  background: rgba(87, 166, 255, 0.28);
+}

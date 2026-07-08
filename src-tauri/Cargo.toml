@@ -1,0 +1,43 @@
+[package]
+name = "dynamic-island"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "dynamic_island_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+window-vibrancy = "0.7.1"
+# `windows-future` provides the `IAsyncOperation` async primitives that the
+# SMTC bindings return. windows-rs 0.62 pulls in 0.3.x transitively; we depend
+# on it directly so we can name the type and poll it to completion on our MTA
+# worker thread (0.3 dropped the inherent blocking `get()`).
+windows-future = "0.3"
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+  "Win32_System_Com",
+  "Foundation",
+  "Media_Control",
+  "Storage_Streams",
+] }
+

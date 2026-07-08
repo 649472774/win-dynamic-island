@@ -1,0 +1,9 @@
+/**
+ * Module bootstrap. Importing this file registers all built-in modules for
+ * their side effects. Add new modules here as they are implemented.
+ */
+import "./clock";
+import "./nowplaying";
+
+export { getActiveModules, getPrimaryModule, registerModule } from "./registry";
+export type { IslandModule, IslandModuleProps } from "./types";
