@@ -11,11 +11,20 @@
 //! ## The fix
 //! We register our **own** `IDropTarget` via `RegisterDragDrop` directly on the
 //! window's HWND (and, best-effort, every descendant HWND so whichever one the
-//! cursor is over during a drag routes to us). Crucially, neither `SetWindowRgn`
-//! (our click-through region clip) nor per-pixel alpha affect OLE drag-drop
-//! hit-testing — the OS delivers DragEnter/Over/Drop across the window's whole
-//! rectangle. That actually turns the entire top-center overlay rect into a big,
-//! easy catch zone.
+//! cursor is over during a drag routes to us). Per-pixel alpha does not affect
+//! OLE drag hit-testing, so this reliably catches drops over the visible pill.
+//!
+//! ## The catch-zone problem (and the strip window)
+//! OLE drag hit-testing uses `WindowFromPoint`, which **respects** `SetWindowRgn`
+//! — and we clip the island to the pill shape for click-through. So the island's
+//! own drop zone is only the tiny collapsed pill, which is very hard to hit. To
+//! give drags a big, forgiving target we add a separate top-center **strip
+//! window** (`ensure_catcher`) that carries the *same* `IDropTarget` but is **not**
+//! region-clipped: layered @ alpha=1 (invisible), click-through via
+//! `WM_NCHITTEST -> HTTRANSPARENT` (never eats a click or makes a dead zone, yet
+//! `WindowFromPoint` still finds it so OLE drags land on it), topmost + tool-window
+//! + no-activate. Result: file drag-in is caught across the whole top-center strip
+//! (island width × ~220px), while clicks and hover still pass through to the pill.
 //!
 //! On DragEnter/Over we report `DROPEFFECT_COPY` and emit `shelf-drag-enter`
 //! (the frontend force-expands into a large drop panel); on Drop we pull the
@@ -36,22 +45,42 @@ pub fn install(app: &AppHandle) {
     let _ = app;
 }
 
+/// Re-align the invisible drop-catcher strip to the island (call after the
+/// island re-centers on a monitor / DPI change). Safe no-op off Windows.
+pub fn reposition(app: &AppHandle) {
+    #[cfg(windows)]
+    imp::reposition(app);
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
 #[cfg(windows)]
 mod imp {
     use tauri::{AppHandle, Emitter, Manager};
 
-    use windows::Win32::Foundation::{HWND, LPARAM, POINTL};
+    use std::sync::atomic::{AtomicIsize, Ordering};
+
+    use windows::Win32::Foundation::{
+        COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINTL, RECT, WPARAM,
+    };
+    use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
     use windows::Win32::System::Com::{
         IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL,
     };
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Ole::{
         OleInitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
         DROPEFFECT_COPY, IDropTarget, IDropTarget_Impl,
     };
     use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
-    use windows::Win32::UI::WindowsAndMessaging::EnumChildWindows;
-    use windows_core::{implement, BOOL, Ref, Result as WinResult};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, EnumChildWindows, GetWindowRect,
+        RegisterClassW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow, HTTRANSPARENT,
+        HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_NCHITTEST,
+        WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    };
+    use windows_core::{implement, BOOL, Ref, Result as WinResult, PCWSTR};
 
     /// COM object receiving the OS drag-drop callbacks. Holds an `AppHandle` so
     /// it can forward the gesture to the frontend as Tauri events.
@@ -167,6 +196,8 @@ mod imp {
     /// ignored — the top-level registration is the reliable catch-all.
     unsafe fn register_pass(app: &AppHandle, top: HWND) {
         // Idempotent: returns S_FALSE if the thread is already OLE-initialized.
+        // RPC_E_CHANGED_MODE (0x80010106) means the thread is MTA, not STA —
+        // RegisterDragDrop then fails, which would explain "drag-in never works".
         let _ = OleInitialize(None);
 
         let target: IDropTarget = DropCatcher { app: app.clone() }.into();
@@ -179,11 +210,132 @@ mod imp {
             Some(collect_child),
             LPARAM(&mut kids as *mut _ as isize),
         );
-        for k in kids {
-            let h = HWND(k as _);
+        for k in &kids {
+            let h = HWND(*k as _);
             let _ = RevokeDragDrop(h);
             let _ = RegisterDragDrop(h, &target);
         }
+    }
+
+    // ---- Dedicated invisible drop-catcher window ---------------------------
+    //
+    // The island window is region-clipped to the pill (`SetWindowRgn`), and OLE
+    // drag hit-testing uses `WindowFromPoint`, which *respects* that clip — so the
+    // island by itself only catches drops on the tiny visible pill. To give drags
+    // a big, forgiving target we add a separate top-center strip window that is:
+    //   * NOT region-clipped (its whole rect catches drops),
+    //   * layered @ alpha=1 (present for hit-testing, invisible to the eye),
+    //   * click-through via `WM_NCHITTEST -> HTTRANSPARENT` (never eats a click or
+    //     makes a dead zone; `WindowFromPoint` still returns it, so OLE drags are
+    //     delivered to its `IDropTarget`),
+    //   * topmost + tool-window + no-activate (out of Alt-Tab/taskbar, no focus).
+    // Both windows carry the same `IDropTarget`, so their z-order never matters.
+    static CATCHER: AtomicIsize = AtomicIsize::new(0);
+    /// Height (physical px) of the top-center catch strip.
+    const STRIP_H: i32 = 220;
+
+    unsafe extern "system" fn catcher_wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if msg == WM_NCHITTEST {
+            // Pass every click through to whatever is underneath (the pill, or
+            // the app behind us) while staying a valid OLE drop target.
+            return LRESULT(HTTRANSPARENT as isize);
+        }
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
+    /// Align the catch strip across the top-center of the island's monitor,
+    /// horizontally matching the island window.
+    unsafe fn position_over_island(catcher: HWND, island: HWND) {
+        let mut r = RECT::default();
+        if GetWindowRect(island, &mut r).is_ok() {
+            let w = (r.right - r.left).max(200);
+            let _ = SetWindowPos(
+                catcher,
+                Some(HWND_TOPMOST),
+                r.left,
+                0,
+                w,
+                STRIP_H,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+    }
+
+    /// Create (once) the invisible click-through drop-catcher window and register
+    /// our `IDropTarget` on it. Idempotent — a no-op once created.
+    unsafe fn ensure_catcher(app: &AppHandle, island: HWND) {
+        if CATCHER.load(Ordering::Relaxed) != 0 {
+            return;
+        }
+        let hinstance: HINSTANCE = match GetModuleHandleW(PCWSTR::null()) {
+            Ok(h) => HINSTANCE(h.0),
+            Err(_) => return,
+        };
+        // Null-terminated wide class name; kept alive for both calls below.
+        let class: Vec<u16> = "DI_DropCatcher\0".encode_utf16().collect();
+        let class_name = PCWSTR(class.as_ptr());
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(catcher_wndproc),
+            hInstance: hinstance,
+            hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+            lpszClassName: class_name,
+            ..Default::default()
+        };
+        // "Class already exists" is harmless on a repeated install pass.
+        let _ = RegisterClassW(&wc);
+
+        let created = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
+            class_name,
+            PCWSTR::null(),
+            WS_POPUP,
+            0,
+            0,
+            10,
+            10,
+            None,
+            None,
+            Some(hinstance),
+            None,
+        );
+        let catcher = match created {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("[dragdrop] CreateWindowExW(catcher) failed: {:?}", e);
+                return;
+            }
+        };
+        // alpha = 1/255: visually imperceptible but a real hit-test target.
+        let _ = SetLayeredWindowAttributes(catcher, COLORREF(0), 1, LWA_ALPHA);
+        let _ = ShowWindow(catcher, SW_SHOWNOACTIVATE);
+        position_over_island(catcher, island);
+
+        let target: IDropTarget = DropCatcher { app: app.clone() }.into();
+        let _ = RevokeDragDrop(catcher);
+        let _ = RegisterDragDrop(catcher, &target);
+        CATCHER.store(catcher.0 as isize, Ordering::Relaxed);
+    }
+
+    /// Re-align the catch strip after a monitor / DPI / primary-display change.
+    /// Scheduled onto the main (UI) thread that owns the window.
+    pub fn reposition(app: &AppHandle) {
+        let a = app.clone();
+        let _ = app.run_on_main_thread(move || unsafe {
+            let c = CATCHER.load(Ordering::Relaxed);
+            if c == 0 {
+                return;
+            }
+            if let Some(win) = a.get_webview_window("main") {
+                if let Ok(h) = win.hwnd() {
+                    position_over_island(HWND(c as _), HWND(h.0 as _));
+                }
+            }
+        });
     }
 
     pub fn install(app: &AppHandle) {
@@ -197,7 +349,10 @@ mod imp {
 
         // Immediate pass — we are on the main thread during setup, and the
         // top-level HWND already exists.
-        unsafe { register_pass(app, HWND(top as _)) };
+        unsafe {
+            register_pass(app, HWND(top as _));
+            ensure_catcher(app, HWND(top as _));
+        }
 
         // WebView2 finishes initializing asynchronously *after* setup and can
         // create/reset child HWNDs. Re-run a few passes on the main thread so
@@ -210,6 +365,8 @@ mod imp {
                 let app_inner = app.clone();
                 let _ = app.run_on_main_thread(move || unsafe {
                     register_pass(&app_inner, HWND(top as _));
+                    // Idempotent; also realigns the strip after any late centering.
+                    ensure_catcher(&app_inner, HWND(top as _));
                 });
             }
         });

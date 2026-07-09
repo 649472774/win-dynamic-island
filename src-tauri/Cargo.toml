@@ -52,6 +52,9 @@ windows = { version = "0.62.2", features = [
   # transparent (WS_EX_LAYERED) window, where wry's built-in drop events never
   # fire. Needs SystemServices for MODIFIERKEYS_FLAGS (IDropTarget_Impl gate).
   "Win32_System_SystemServices",
+  # M4g: invisible click-through drop-catcher window (GetModuleHandleW for the
+  # window class hinstance) — gives file drag-in a big top-strip catch zone.
+  "Win32_System_LibraryLoader",
   # M3: system info (battery / CPU / memory)
   "Win32_System_Power",
   "Win32_System_SystemInformation",

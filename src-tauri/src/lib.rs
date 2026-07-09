@@ -57,6 +57,9 @@ fn spawn_monitor_watcher(app: &tauri::AppHandle) {
                             window::apply_region(&win, r);
                         }
                     }
+                    // Keep the invisible drag-catcher strip aligned with the
+                    // island after it re-centers on the new monitor.
+                    dragdrop::reposition(win.app_handle());
                 }
                 signature = Some(sig);
             }
