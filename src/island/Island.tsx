@@ -229,11 +229,6 @@ export default function Island() {
                 <SettingsPanel />
               ) : (
                 <>
-                  <header className="panel-header">
-                    <span className="panel-title">灵动岛</span>
-                    <span className="panel-hint">移开鼠标即可收起</span>
-                  </header>
-
                   {primary?.Expanded ? <primary.Expanded state={state} /> : null}
 
                   <div className="module-grid">
@@ -249,10 +244,6 @@ export default function Island() {
                       </div>
                     ))}
                   </div>
-
-                  <footer className="panel-footer">
-                    已加载模块：{allModules.map((m) => m.title).join("、")}
-                  </footer>
                 </>
               )}
             </motion.div>

@@ -1,11 +1,13 @@
 # Dynamic Island · Windows 灵动岛
 
+**简体中文** ｜ [English](./README.en.md)
+
 一个受 Apple Dynamic Island 启发的 Windows 桌面「灵动岛」悬浮窗应用。基于 **Tauri v2** 构建：
 Rust 负责所有 Windows 原生能力（窗口定位、置顶、毛玻璃、区域裁剪、非激活点击），
 前端用 **React + Vite + TypeScript + Motion + Zustand** 负责渲染与形变动画。
 
-> 当前进度：**M1（透明置顶胶囊窗口 + 三态形变）与 M2（Now Playing / SMTC）均已完成。**
-> 后续里程碑 M3–M4 见文末路线图。
+> 当前进度：**M1–M4 全部完成**（透明置顶胶囊 + 三态形变、Now Playing / SMTC、
+> 音量 HUD + 电量 / 系统信息、文件暂存架 + 托盘 + 设置持久化 + 开机自启）。详见文末路线图。
 
 ---
 

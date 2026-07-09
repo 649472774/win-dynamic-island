@@ -89,12 +89,16 @@ body,
   inset: 0;
 }
 
+/* Uniform 16px padding: with the 30px frame radius and the 14px album-cover
+   radius, the cover's top-left corner sits concentric with the pill's rounded
+   corner (30 - 16 ≈ 14). Header/footer chrome removed so the cover hugs the top
+   corner and the bottom tiles hug the bottom corners. */
 .pill-content.expanded {
   height: auto;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  padding: 14px 16px;
+  padding: 16px;
   gap: 10px;
   position: relative;
 }
@@ -195,7 +199,7 @@ body,
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -543,7 +547,7 @@ body,
   position: relative;
   display: flex;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -1052,10 +1056,14 @@ body,
   border: none;
   width: 22px;
   height: 22px;
+  padding: 0;
   border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: background 0.15s ease;
