@@ -434,6 +434,7 @@ body,
 /* Full-width card holding three stats (battery / CPU / memory). */
 .sys-tile {
   grid-column: 1 / -1;
+  position: relative;
   display: flex;
   gap: 10px;
   padding: 10px 12px;
@@ -502,6 +503,101 @@ body,
 
 .sys-stat-label.warn {
   color: #ff8a84;
+}
+
+/* Ring gauge variant (toggle in the tile corner switches bar ↔ ring). */
+.sys-tile.ring {
+  gap: 6px;
+}
+
+.sys-stat-ring {
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+}
+
+.sys-ring-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+
+.sys-ring {
+  display: block;
+  width: 56px;
+  height: 56px;
+  transform: rotate(-90deg); /* start the arc at 12 o'clock, grow clockwise */
+}
+
+.sys-ring-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 5;
+}
+
+.sys-ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.35s ease;
+}
+
+.sys-ring-fill.warn {
+  stroke: #ff5f57;
+}
+
+.sys-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+
+.sys-ring-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sys-ring-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-ring-value.warn {
+  color: #ff8a84;
+}
+
+/* Compact corner control that switches the gauge style. */
+.sys-toggle {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sys-toggle:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* ----------------------------- Volume (M3) ------------------------ */

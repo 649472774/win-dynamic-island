@@ -60,18 +60,52 @@ interface NPStore {
   np: NowPlaying;
   /** Retained cover art (updates only carry the blob when the track changes). */
   cover: string | null;
+  /**
+   * Whether `cover` has been confirmed decodable. We validate every new cover
+   * with an off-screen `Image()` and only flip this true once it loads, so the
+   * visible <img> is never mounted with an undecodable src (which WebView2 would
+   * render as the "broken image" glyph). This also sidesteps a Chromium quirk
+   * where a re-mounted <img> for an already-cached decode failure never fires
+   * `onError`, leaving the broken glyph stuck on screen.
+   */
+  coverOk: boolean;
   /** Whether Now Playing currently owns the collapsed pill. */
   active: boolean;
   apply: (next: NowPlaying) => void;
 }
 
+/**
+ * Validate a cover data-URL off-screen; publish `coverOk` only when it decodes.
+ * A monotonic token guards against out-of-order results when covers change fast.
+ */
+let coverToken = 0;
+function validateCover(url: string | null): void {
+  const token = ++coverToken;
+  if (!url) {
+    useNP.setState({ coverOk: false });
+    return;
+  }
+  const probe = new Image();
+  const settle = (ok: boolean) => {
+    if (token === coverToken) useNP.setState({ coverOk: ok });
+  };
+  probe.onload = () => settle(probe.naturalWidth > 0);
+  probe.onerror = () => settle(false);
+  probe.src = url;
+  // A cached data-URL may already be resolved synchronously; catch that too.
+  if (probe.complete) settle(probe.naturalWidth > 0);
+}
+
 const useNP = create<NPStore>((set, get) => ({
   np: EMPTY,
   cover: null,
+  coverOk: false,
   active: false,
   apply: (next) => {
     const prevActive = get().active;
-    const cover = next.coverChanged ? next.cover : get().cover;
+    const prevCover = get().cover;
+    const cover = next.coverChanged ? next.cover : prevCover;
+    const coverChanged = cover !== prevCover;
 
     let active: boolean;
     if (isPlaying(next)) {
@@ -100,7 +134,10 @@ const useNP = create<NPStore>((set, get) => ({
       active = false;
     }
 
-    set({ np: next, cover, active });
+    // On a cover change, drop to the placeholder immediately (coverOk=false) and
+    // re-validate; the probe flips coverOk back on once the new art decodes.
+    set({ np: next, cover, active, coverOk: coverChanged ? false : get().coverOk });
+    if (coverChanged) validateCover(cover);
     // Flip the collapsed-pill owner as soon as activeness changes.
     if (prevActive !== active) bumpModules();
   },
@@ -142,30 +179,30 @@ function control(fn: () => Promise<void>) {
 }
 
 /**
- * Cover art with a graceful fallback. Some players expose a thumbnail reference
- * that yields no (or a transient / malformed) image; rather than show the
- * browser's broken-image glyph we fall back to a music note. `key={cover}`
- * resets the failure flag whenever the art changes.
+ * Cover art with a graceful fallback to a music note. Rendering is gated on the
+ * store's `coverOk` flag (set by an off-screen probe in `validateCover`), so the
+ * visible <img> is only ever mounted with a src we've confirmed decodes — the
+ * browser's broken-image glyph can never appear, for any player.
  */
-function CoverArt({ cover, variant }: { cover: string | null; variant: "mini" | "full" }) {
-  const [failed, setFailed] = useState(false);
-  // A new cover URL deserves a fresh attempt. Without this, once `failed` latches
-  // (e.g. a transient/corrupt thumbnail at a track switch), the fallback branch is
-  // shown and the keyed <img> never re-mounts — so the collapsed mini icon stays
-  // stuck on 🎵 even after real art arrives, until the whole component re-mounts
-  // (which only happened via expand→collapse). Resetting on `cover` change makes it self-heal.
-  useEffect(() => {
-    setFailed(false);
-  }, [cover]);
+function CoverArt({
+  cover,
+  coverOk,
+  variant,
+}: {
+  cover: string | null;
+  coverOk: boolean;
+  variant: "mini" | "full";
+}) {
   const imgClass = variant === "mini" ? "np-cover-mini" : "np-cover";
-  if (cover && !failed) {
+  if (cover && coverOk) {
     return (
       <img
-        key={cover}
         className={imgClass}
         src={cover}
         alt=""
-        onError={() => setFailed(true)}
+        // Belt-and-suspenders: if a validated image ever fails at paint, drop
+        // back to the placeholder instead of showing a broken glyph.
+        onError={() => useNP.setState({ coverOk: false })}
       />
     );
   }
@@ -183,9 +220,10 @@ function CoverArt({ cover, variant }: { cover: string | null; variant: "mini" | 
 function CollapsedNowPlaying(_: IslandModuleProps) {
   const np = useNP((s) => s.np);
   const cover = useNP((s) => s.cover);
+  const coverOk = useNP((s) => s.coverOk);
   return (
     <div className="mod-np-collapsed">
-      <CoverArt cover={cover} variant="mini" />
+      <CoverArt cover={cover} coverOk={coverOk} variant="mini" />
       <span className="np-title-mini">{np.title || "正在播放"}</span>
       {np.status === "playing" ? (
         <span className="np-eq" aria-hidden="true">
@@ -201,6 +239,7 @@ function CollapsedNowPlaying(_: IslandModuleProps) {
 function ExpandedNowPlaying({ state }: IslandModuleProps) {
   const np = useNP((s) => s.np);
   const cover = useNP((s) => s.cover);
+  const coverOk = useNP((s) => s.coverOk);
   const expanded = state === "expanded";
 
   // Re-render a few times a second for a smooth bar — but only while the panel
@@ -220,7 +259,7 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
   return (
     <div className="mod-np-expanded">
       <div className="np-main">
-        <CoverArt cover={cover} variant="full" />
+        <CoverArt cover={cover} coverOk={coverOk} variant="full" />
         <div className="np-meta">
           <div className="np-title" title={np.title}>
             {np.title || "未在播放"}

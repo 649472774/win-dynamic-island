@@ -384,11 +384,16 @@ mod win {
         // Cache the last cover so we don't re-decode the thumbnail every tick.
         thread_local! {
             static COVER: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+            // How many times we've tried to fetch the current track's thumbnail.
+            // Some players (esp. domestic music apps) expose the SMTC thumbnail a
+            // beat *after* the metadata, so we retry across ticks until it lands.
+            static ATTEMPTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
         }
 
         let Some(session) = current_session(manager) else {
             *last_track_id = String::new();
             COVER.with(|c| *c.borrow_mut() = None);
+            ATTEMPTS.with(|a| a.set(0));
             let none = NowPlaying::default();
             return (none.clone(), none, false);
         };
@@ -427,9 +432,14 @@ mod win {
             Err(_) => (0, 0),
         };
 
-        // Metadata (title / artist / album / cover). `cover_changed` is true
-        // exactly on the cycle where the track identity changes; only then do we
-        // (re)decode the thumbnail and carry it in the emitted payload.
+        // Metadata (title / artist / album / cover). On a track-identity change
+        // we forget the old art and (re)start acquisition; `cover_changed` marks
+        // any cycle where the frontend's cached art must change. Because a player
+        // may publish the thumbnail slightly after the metadata, we keep retrying
+        // `read_cover` on later ticks (up to MAX_COVER_ATTEMPTS) until valid art
+        // arrives, then push it once — instead of locking in an early empty/broken
+        // thumbnail for the whole track.
+        const MAX_COVER_ATTEMPTS: u32 = 10;
         let mut cover_changed = false;
         let (title, artist, album) = match session
             .TryGetMediaPropertiesAsync()
@@ -441,10 +451,27 @@ mod win {
                 let album = props.AlbumTitle().map(|h| h.to_string()).unwrap_or_default();
                 let track_id = track_hash(&title, &artist, &album);
                 if track_id != *last_track_id {
+                    // New track: drop stale art immediately (frontend falls back to
+                    // the placeholder) and restart the acquisition attempts.
                     *last_track_id = track_id;
+                    COVER.with(|c| *c.borrow_mut() = None);
+                    ATTEMPTS.with(|a| a.set(0));
                     cover_changed = true;
-                    let cover = read_cover(&props);
-                    COVER.with(|c| *c.borrow_mut() = cover);
+                }
+                // Keep trying until we have valid art (a cheap no-op afterwards).
+                let have_cover = COVER.with(|c| c.borrow().is_some());
+                if !have_cover {
+                    let n = ATTEMPTS.with(|a| {
+                        let v = a.get() + 1;
+                        a.set(v);
+                        v
+                    });
+                    if n <= MAX_COVER_ATTEMPTS {
+                        if let Some(cover) = read_cover(&props) {
+                            COVER.with(|c| *c.borrow_mut() = Some(cover));
+                            cover_changed = true;
+                        }
+                    }
                 }
                 (title, artist, album)
             }
@@ -483,29 +510,49 @@ mod win {
         (base, full, is_playing)
     }
 
-    /// Decode the session thumbnail into a `data:` URL. Bounded in size so a
-    /// pathological cover can't blow up IPC.
+    /// Decode the session thumbnail into a `data:` URL, or `None` when there is
+    /// no usable art yet. Bounded in size so a pathological cover can't blow up
+    /// IPC, and validated by magic bytes so we never hand the WebView an
+    /// undecodable blob (which would render as the browser's "broken image").
     fn read_cover(props: &MediaProps) -> Option<String> {
         let thumb: IRandomAccessStreamReference = props.Thumbnail().ok()?;
         let stream = block_on(thumb.OpenReadAsync().ok()?).ok()?;
         let size = stream.Size().ok()?;
-        if size == 0 || size > 6_000_000 {
+        // Reject empty / implausibly tiny / oversized thumbnails. Many players
+        // briefly expose a 0-byte (or placeholder) thumbnail right after the
+        // metadata changes; treating those as "not ready" lets the caller retry.
+        if size < 100 || size > 6_000_000 {
             return None;
         }
-        let content_type = stream
-            .ContentType()
-            .map(|h| h.to_string())
-            .unwrap_or_default();
         let input = stream.GetInputStreamAt(0).ok()?;
         let reader = DataReader::CreateDataReader(&input).ok()?;
         block_on(reader.LoadAsync(size as u32).ok()?).ok()?;
         let mut buf = vec![0u8; size as usize];
         reader.ReadBytes(&mut buf).ok()?;
-        let mime = if content_type.is_empty() {
-            "image/jpeg"
-        } else {
-            &content_type
-        };
+        // Derive the MIME from the magic bytes rather than trusting ContentType
+        // (some players report it incorrectly). Unknown/garbage → None → retry.
+        let mime = sniff_image_mime(&buf)?;
         Some(format!("data:{};base64,{}", mime, STANDARD.encode(&buf)))
+    }
+
+    /// Identify a raster image by its leading magic bytes; returns the canonical
+    /// MIME type, or `None` if the buffer is not a recognized image format.
+    fn sniff_image_mime(buf: &[u8]) -> Option<&'static str> {
+        if buf.len() >= 3 && buf[..3] == [0xFF, 0xD8, 0xFF] {
+            return Some("image/jpeg");
+        }
+        if buf.len() >= 8 && buf[..8] == [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
+            return Some("image/png");
+        }
+        if buf.len() >= 6 && (&buf[..6] == b"GIF87a" || &buf[..6] == b"GIF89a") {
+            return Some("image/gif");
+        }
+        if buf.len() >= 2 && &buf[..2] == b"BM" {
+            return Some("image/bmp");
+        }
+        if buf.len() >= 12 && &buf[..4] == b"RIFF" && &buf[8..12] == b"WEBP" {
+            return Some("image/webp");
+        }
+        None
     }
 }
