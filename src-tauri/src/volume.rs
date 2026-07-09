@@ -157,7 +157,9 @@ pub mod imp {
                     park(&bound, &rx);
                     // Device changed (or park asked to rebind): unregister and loop.
                     unsafe {
-                        let _ = bound.endpoint.UnregisterControlChangeNotify(&bound.callback);
+                        let _ = bound
+                            .endpoint
+                            .UnregisterControlChangeNotify(&bound.callback);
                     }
                 }
                 Err(_) => {
@@ -184,8 +186,8 @@ pub mod imp {
             let endpoint: IAudioEndpointVolume = device.Activate(CLSCTX_ALL, None)?;
 
             // Seed the shared snapshot silently (no event → no HUD on startup).
-            let level = ((endpoint.GetMasterVolumeLevelScalar()? * 100.0).round() as i32)
-                .clamp(0, 100);
+            let level =
+                ((endpoint.GetMasterVolumeLevelScalar()? * 100.0).round() as i32).clamp(0, 100);
             let muted = endpoint.GetMute()?.as_bool();
             if let Ok(mut guard) = shared.lock() {
                 *guard = VolumeInfo { level, muted };
@@ -247,9 +249,7 @@ pub mod imp {
         unsafe {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-            let device = enumerator
-                .GetDefaultAudioEndpoint(eRender, eConsole)
-                .ok()?;
+            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
             Some(pwstr_to_string(device.GetId().ok()?))
         }
     }

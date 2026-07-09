@@ -386,7 +386,8 @@ mod win {
 
     /// Resolve the current session, treating both an `Err` and a null interface
     /// (no active player) as "none".
-    fn current_session(manager: &SessionManager) -> Option<Session> {        let session = manager.GetCurrentSession().ok()?;
+    fn current_session(manager: &SessionManager) -> Option<Session> {
+        let session = manager.GetCurrentSession().ok()?;
         if session.as_raw().is_null() {
             return None;
         }
@@ -421,7 +422,10 @@ mod win {
     ///
     /// `emit_payload` carries the cover only when the track identity changed;
     /// `full_snapshot` always carries the last-known cover (for `get_now_playing`).
-    fn read(manager: &SessionManager, last_track_id: &mut String) -> (NowPlaying, NowPlaying, bool) {
+    fn read(
+        manager: &SessionManager,
+        last_track_id: &mut String,
+    ) -> (NowPlaying, NowPlaying, bool) {
         // Cache the last cover so we don't re-decode the thumbnail every tick.
         thread_local! {
             static COVER: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
@@ -440,29 +444,30 @@ mod win {
         };
 
         // Playback status + capabilities.
-        let (status, is_playing, can_next, can_prev, can_pp, can_seek) = match session.GetPlaybackInfo() {
-            Ok(info) => {
-                let st = info.PlaybackStatus().unwrap_or(PlaybackStatus::Closed);
-                let (label, is_playing) = match st {
-                    PlaybackStatus::Playing => ("playing", true),
-                    PlaybackStatus::Paused => ("paused", false),
-                    _ => ("stopped", false),
-                };
-                let (n, p, pp, sk) = match info.Controls() {
-                    Ok(c) => (
-                        c.IsNextEnabled().unwrap_or(false),
-                        c.IsPreviousEnabled().unwrap_or(false),
-                        c.IsPlayEnabled().unwrap_or(false)
-                            || c.IsPauseEnabled().unwrap_or(false)
-                            || c.IsPlayPauseToggleEnabled().unwrap_or(false),
-                        c.IsPlaybackPositionEnabled().unwrap_or(false),
-                    ),
-                    Err(_) => (false, false, false, false),
-                };
-                (label, is_playing, n, p, pp, sk)
-            }
-            Err(_) => ("stopped", false, false, false, false, false),
-        };
+        let (status, is_playing, can_next, can_prev, can_pp, can_seek) =
+            match session.GetPlaybackInfo() {
+                Ok(info) => {
+                    let st = info.PlaybackStatus().unwrap_or(PlaybackStatus::Closed);
+                    let (label, is_playing) = match st {
+                        PlaybackStatus::Playing => ("playing", true),
+                        PlaybackStatus::Paused => ("paused", false),
+                        _ => ("stopped", false),
+                    };
+                    let (n, p, pp, sk) = match info.Controls() {
+                        Ok(c) => (
+                            c.IsNextEnabled().unwrap_or(false),
+                            c.IsPreviousEnabled().unwrap_or(false),
+                            c.IsPlayEnabled().unwrap_or(false)
+                                || c.IsPauseEnabled().unwrap_or(false)
+                                || c.IsPlayPauseToggleEnabled().unwrap_or(false),
+                            c.IsPlaybackPositionEnabled().unwrap_or(false),
+                        ),
+                        Err(_) => (false, false, false, false),
+                    };
+                    (label, is_playing, n, p, pp, sk)
+                }
+                Err(_) => ("stopped", false, false, false, false, false),
+            };
 
         // Timeline (position / duration), in ms. Measured relative to StartTime
         // so players that report a non-zero origin still show 0-based progress.
@@ -487,14 +492,14 @@ mod win {
         // thumbnail for the whole track.
         const MAX_COVER_ATTEMPTS: u32 = 10;
         let mut cover_changed = false;
-        let (title, artist, album) = match session
-            .TryGetMediaPropertiesAsync()
-            .and_then(block_on)
-        {
+        let (title, artist, album) = match session.TryGetMediaPropertiesAsync().and_then(block_on) {
             Ok(props) => {
                 let title = props.Title().map(|h| h.to_string()).unwrap_or_default();
                 let artist = props.Artist().map(|h| h.to_string()).unwrap_or_default();
-                let album = props.AlbumTitle().map(|h| h.to_string()).unwrap_or_default();
+                let album = props
+                    .AlbumTitle()
+                    .map(|h| h.to_string())
+                    .unwrap_or_default();
                 let track_id = track_hash(&title, &artist, &album);
                 if track_id != *last_track_id {
                     // New track: drop stale art immediately (frontend falls back to
@@ -544,7 +549,11 @@ mod win {
             track_id,
             // Emitted payload: send the cover only on the identity-change cycle.
             cover_changed,
-            cover: if cover_changed { cover_now.clone() } else { None },
+            cover: if cover_changed {
+                cover_now.clone()
+            } else {
+                None
+            },
         };
 
         // Full snapshot for `get_now_playing`: always carries the current cover.

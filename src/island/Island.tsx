@@ -10,10 +10,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
+import { listen } from "@tauri-apps/api/event";
 import { useIsland, type IslandState } from "../store/island";
 import { useModulesVersion } from "../store/modules";
+import { useSettings } from "../store/settings";
 import { recenter, revealIsland, setIslandRegion } from "../lib/native";
 import { getAllModules, getPrimaryModule } from "../modules";
+import SettingsPanel from "./SettingsPanel";
 import "../modules"; // ensure built-in modules register
 
 /** Target geometry per state, in CSS pixels. */
@@ -34,6 +37,8 @@ export default function Island() {
   const state = useIsland((s) => s.state);
   const setState = useIsland((s) => s.setState);
   const toggleExpanded = useIsland((s) => s.toggleExpanded);
+  const settingsOpen = useIsland((s) => s.settingsOpen);
+  const openSettings = useIsland((s) => s.openSettings);
   const hud = useIsland((s) => s.hud);
   // Re-evaluate the active module set when a module's activeness flips (e.g.
   // music starts/stops) even if the island state itself hasn't changed.
@@ -115,6 +120,24 @@ export default function Island() {
     return () => window.removeEventListener("resize", onResize);
   }, [reportRegion]);
 
+  // Boot: load persisted settings; wire right-click → settings (Plan A) and the
+  // tray's "设置" item (the `open-settings` event). We preventDefault on every
+  // contextmenu so the default WebView (browser) menu never shows; because the
+  // window is click-through outside the pill, this only ever fires on the pill.
+  useEffect(() => {
+    void useSettings.getState().hydrate();
+    const onCtx = (e: MouseEvent) => {
+      e.preventDefault();
+      openSettings();
+    };
+    document.addEventListener("contextmenu", onCtx);
+    const un = listen("open-settings", () => openSettings());
+    return () => {
+      document.removeEventListener("contextmenu", onCtx);
+      void un.then((f) => f()).catch(() => {});
+    };
+  }, [openSettings]);
+
   const clearCollapse = () => {
     if (collapseTimer.current) {
       window.clearTimeout(collapseTimer.current);
@@ -167,30 +190,36 @@ export default function Island() {
               exit={{ opacity: 0, y: -6 }}
               transition={FADE}
             >
-              <header className="panel-header">
-                <span className="panel-title">灵动岛</span>
-                <span className="panel-hint">移开鼠标即可收起</span>
-              </header>
+              {settingsOpen ? (
+                <SettingsPanel />
+              ) : (
+                <>
+                  <header className="panel-header">
+                    <span className="panel-title">灵动岛</span>
+                    <span className="panel-hint">移开鼠标即可收起</span>
+                  </header>
 
-              {primary?.Expanded ? <primary.Expanded state={state} /> : null}
+                  {primary?.Expanded ? <primary.Expanded state={state} /> : null}
 
-              <div className="module-grid">
-                {tiles.map((m) => {
-                  const Tile = m.Tile!;
-                  return <Tile key={m.id} state={state} />;
-                })}
-                {UPCOMING.map((m) => (
-                  <div className="module-chip" key={m.id}>
-                    <span className="chip-icon">{m.icon}</span>
-                    <span className="chip-label">{m.label}</span>
-                    <span className="chip-soon">{m.soon}</span>
+                  <div className="module-grid">
+                    {tiles.map((m) => {
+                      const Tile = m.Tile!;
+                      return <Tile key={m.id} state={state} />;
+                    })}
+                    {UPCOMING.map((m) => (
+                      <div className="module-chip" key={m.id}>
+                        <span className="chip-icon">{m.icon}</span>
+                        <span className="chip-label">{m.label}</span>
+                        <span className="chip-soon">{m.soon}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              <footer className="panel-footer">
-                已加载模块：{allModules.map((m) => m.title).join("、")}
-              </footer>
+                  <footer className="panel-footer">
+                    已加载模块：{allModules.map((m) => m.title).join("、")}
+                  </footer>
+                </>
+              )}
             </motion.div>
           ) : showingHud ? (
             <motion.div
@@ -224,7 +253,5 @@ export default function Island() {
   );
 }
 
-/** Placeholder cards showing the roadmap of upcoming modules (M4). */
-const UPCOMING = [
-  { id: "shelf", icon: "📎", label: "文件暂存架", soon: "M4" },
-];
+/** Placeholder cards showing the roadmap of upcoming modules. */
+const UPCOMING: { id: string; icon: string; label: string; soon: string }[] = [];

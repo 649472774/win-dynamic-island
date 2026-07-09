@@ -17,6 +17,12 @@ interface IslandStore {
   state: IslandState;
   setState: (s: IslandState) => void;
   toggleExpanded: () => void;
+  /** Whether the expanded panel is showing the settings view. */
+  settingsOpen: boolean;
+  /** Expand the island and show the settings view. */
+  openSettings: () => void;
+  /** Leave the settings view (stays expanded, back to modules). */
+  closeSettings: () => void;
   /** Currently shown transient HUD, or null. */
   hud: Hud | null;
   /** Flash a HUD of the given kind; auto-dismisses, resetting the timer if a
@@ -32,10 +38,20 @@ let hudTimer: number | null = null;
 export const useIsland = create<IslandStore>((set, get) => ({
   state: "collapsed",
   setState: (s) => {
-    if (get().state !== s) set({ state: s });
+    if (get().state !== s) {
+      // Leaving the expanded panel always drops the settings view.
+      set(s === "expanded" ? { state: s } : { state: s, settingsOpen: false });
+    }
   },
   toggleExpanded: () =>
-    set({ state: get().state === "expanded" ? "collapsed" : "expanded" }),
+    set(
+      get().state === "expanded"
+        ? { state: "collapsed", settingsOpen: false }
+        : { state: "expanded" },
+    ),
+  settingsOpen: false,
+  openSettings: () => set({ state: "expanded", settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
   hud: null,
   showHud: (kind) => {
     if (hudTimer !== null) window.clearTimeout(hudTimer);

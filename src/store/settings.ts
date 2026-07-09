@@ -1,12 +1,20 @@
 /**
- * User settings (persisted).
+ * User settings (persisted to disk via tauri-plugin-store).
  *
- * Kept intentionally tiny and self-contained. For now it persists to
- * `localStorage` (WebView2 keeps this across app restarts), which is enough to
- * make preferences stick today; M4 will migrate the backing store to the Rust
- * side (tauri-plugin-store) without changing this module's public shape.
+ * The public shape stays synchronous (components read `gaugeStyle` etc.
+ * directly) — we hydrate the zustand store asynchronously from the on-disk
+ * store on boot, and write-through on every change. `autostart` is sourced from
+ * the autostart plugin (the registry Run key is the single source of truth),
+ * not the JSON file, so it can't drift from the real OS state.
  */
 import { create } from "zustand";
+import { LazyStore } from "@tauri-apps/plugin-store";
+import {
+  enable as autostartEnable,
+  disable as autostartDisable,
+  isEnabled as autostartIsEnabled,
+} from "@tauri-apps/plugin-autostart";
+import { listen } from "@tauri-apps/api/event";
 
 /**
  * How the system-info meters (CPU / memory / battery) are drawn.
@@ -20,46 +28,76 @@ export type GaugeStyle = "inline" | "bar" | "ring";
 /** Cycle order used by the tile's corner toggle. */
 export const GAUGE_ORDER: GaugeStyle[] = ["inline", "bar", "ring"];
 
-// v2: the option set changed (added "inline", dropped the old text-in-ring
-// layout), so use a fresh key to reset everyone to the new default rather than
-// honour a stale "bar"/"ring" value from the previous scheme.
-const GAUGE_KEY = "di.settings.gaugeStyle.v2";
 const DEFAULT_GAUGE: GaugeStyle = "inline";
 
-function loadGaugeStyle(): GaugeStyle {
-  try {
-    const v = localStorage.getItem(GAUGE_KEY);
-    return v && (GAUGE_ORDER as string[]).includes(v) ? (v as GaugeStyle) : DEFAULT_GAUGE;
-  } catch {
-    return DEFAULT_GAUGE;
-  }
-}
-
-function persist(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* private mode / storage disabled — settings just won't persist */
-  }
-}
+/** Backing file lives under the app config dir (e.g. %APPDATA%/<id>/). */
+const store = new LazyStore("settings.json");
+const K_GAUGE = "gaugeStyle";
 
 interface SettingsStore {
+  /** Whether the initial async hydrate from disk has completed. */
+  loaded: boolean;
   /** Meter rendering style for the system-info tile. */
   gaugeStyle: GaugeStyle;
   setGaugeStyle: (style: GaugeStyle) => void;
   /** Advance to the next style in GAUGE_ORDER (wraps around). */
   cycleGaugeStyle: () => void;
+  /** Launch on Windows login (reflects the real autostart plugin state). */
+  autostart: boolean;
+  setAutostart: (on: boolean) => void;
+  /** Load persisted values + real autostart state. Call once on boot. */
+  hydrate: () => Promise<void>;
 }
 
 export const useSettings = create<SettingsStore>((set, get) => ({
-  gaugeStyle: loadGaugeStyle(),
+  loaded: false,
+  gaugeStyle: DEFAULT_GAUGE,
   setGaugeStyle: (style) => {
-    persist(GAUGE_KEY, style);
     set({ gaugeStyle: style });
+    void store
+      .set(K_GAUGE, style)
+      .then(() => store.save())
+      .catch(() => {
+        /* store unavailable (e.g. non-tauri) — in-memory only */
+      });
   },
   cycleGaugeStyle: () => {
     const cur = get().gaugeStyle;
     const next = GAUGE_ORDER[(GAUGE_ORDER.indexOf(cur) + 1) % GAUGE_ORDER.length];
     get().setGaugeStyle(next);
   },
+  autostart: false,
+  setAutostart: (on) => {
+    // Optimistic: flip the UI now, then apply to the registry. Re-read to
+    // reflect the true result if the OS call fails.
+    set({ autostart: on });
+    void (on ? autostartEnable() : autostartDisable())
+      .then(() => autostartIsEnabled())
+      .then((real) => set({ autostart: real }))
+      .catch(() => {
+        void autostartIsEnabled()
+          .then((real) => set({ autostart: real }))
+          .catch(() => {});
+      });
+  },
+  hydrate: async () => {
+    try {
+      const g = await store.get<GaugeStyle>(K_GAUGE);
+      if (g && (GAUGE_ORDER as string[]).includes(g)) set({ gaugeStyle: g });
+    } catch {
+      /* ignore — keep defaults */
+    }
+    try {
+      const on = await autostartIsEnabled();
+      set({ autostart: on });
+    } catch {
+      /* ignore */
+    }
+    set({ loaded: true });
+  },
 }));
+
+// The tray menu can toggle autostart directly in Rust; keep our UI in sync.
+void listen<boolean>("autostart-changed", (e) => {
+  useSettings.setState({ autostart: e.payload });
+}).catch(() => {});

@@ -1,5 +1,6 @@
 mod media;
 mod system;
+mod tray;
 mod volume;
 mod window;
 
@@ -40,7 +41,13 @@ fn spawn_monitor_watcher(app: &tauri::AppHandle) {
             if let Ok(Some(monitor)) = win.primary_monitor() {
                 let p = monitor.position();
                 let s = monitor.size();
-                let sig = (p.x, p.y, s.width, s.height, monitor.scale_factor().to_bits());
+                let sig = (
+                    p.x,
+                    p.y,
+                    s.width,
+                    s.height,
+                    monitor.scale_factor().to_bits(),
+                );
                 if signature.is_some() && signature != Some(sig) {
                     window::center_top(&win);
                     if let Some(state) = win.try_state::<RegionState>() {
@@ -58,6 +65,9 @@ fn spawn_monitor_watcher(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(RegionState::default())
         .invoke_handler(tauri::generate_handler![
@@ -111,6 +121,9 @@ pub fn run() {
             app.manage(volume_state);
 
             spawn_monitor_watcher(app.handle());
+
+            // System tray icon + menu (设置 / 开机自启 / 退出).
+            tray::init(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())

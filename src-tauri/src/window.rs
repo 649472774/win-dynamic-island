@@ -15,9 +15,9 @@
 //! WebView viewport is stable and the Motion "morph" animation on the frontend
 //! runs perfectly smooth.
 
-use std::sync::Mutex;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::Mutex;
 
 use serde::Deserialize;
 use tauri::{Manager, PhysicalPosition, Runtime, WebviewWindow};
