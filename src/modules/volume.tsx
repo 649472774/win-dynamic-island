@@ -9,7 +9,7 @@
  * The backend detection is fully event-driven (a COM `IAudioEndpointVolume`
  * callback), so there is zero idle polling here — we only react to real changes.
  */
-import { useRef } from "react";
+import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
@@ -52,6 +52,34 @@ ensureStarted();
 
 const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
+/**
+ * Shared drag-to-set behaviour for any volume track element. Returns a ref to
+ * attach to the track plus pointer handlers that map the cursor's X position to
+ * 0–100% and push it straight back to the system volume. All events stop
+ * propagation so a scrub never bubbles up to the pill's expand/collapse toggle.
+ */
+function useVolumeDrag() {
+  const ref = useRef<HTMLDivElement>(null);
+  const pctFromClientX = (clientX: number): number => {
+    const el = ref.current;
+    if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    return clampPct(((clientX - r.left) / r.width) * 100);
+  };
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    void setVolume(pctFromClientX(e.clientX));
+  };
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.buttons & 1) {
+      e.stopPropagation();
+      void setVolume(pctFromClientX(e.clientX));
+    }
+  };
+  return { ref, onPointerDown, onPointerMove };
+}
+
 /** Speaker glyph reflecting the current level / mute. */
 function speakerIcon(level: number, muted: boolean): string {
   if (muted || level <= 0) return "🔇";
@@ -62,27 +90,14 @@ function speakerIcon(level: number, muted: boolean): string {
 
 /** Draggable / clickable volume track (drives the system volume back). */
 function Slider({ level, muted }: { level: number; muted: boolean }) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const pctFromClientX = (clientX: number): number => {
-    const el = trackRef.current;
-    if (!el) return level;
-    const r = el.getBoundingClientRect();
-    return clampPct(((clientX - r.left) / r.width) * 100);
-  };
-  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    void setVolume(pctFromClientX(e.clientX));
-  };
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.buttons & 1) void setVolume(pctFromClientX(e.clientX));
-  };
+  const drag = useVolumeDrag();
   const fill = muted ? 0 : clampPct(level);
   return (
     <div
       className="vol-track"
-      ref={trackRef}
-      onPointerDown={onDown}
-      onPointerMove={onMove}
+      ref={drag.ref}
+      onPointerDown={drag.onPointerDown}
+      onPointerMove={drag.onPointerMove}
     >
       <div className="vol-fill" style={{ transform: `scaleX(${fill / 100})` }} />
     </div>
@@ -111,20 +126,40 @@ function VolumeHud(_: IslandModuleProps) {
   );
 }
 
-/** Compact card for the expanded panel's grid. */
+/** Compact card for the expanded panel's grid — draggable to set volume. */
 function VolumeTile(_: IslandModuleProps) {
   const info = useVolume((s) => s.info);
   const fill = info.muted ? 0 : clampPct(info.level);
+  const drag = useVolumeDrag();
   return (
     <div className="sys-stat vol-tile">
       <div className="sys-stat-head">
-        <span className="sys-stat-icon">{speakerIcon(info.level, info.muted)}</span>
-        <span className="sys-stat-value">{info.muted ? "静音" : `${clampPct(info.level)}%`}</span>
+        <button
+          className="vol-tile-speaker"
+          title={info.muted ? "取消静音" : "静音"}
+          onClick={(e) => {
+            e.stopPropagation();
+            void setMuted(!info.muted);
+          }}
+        >
+          {speakerIcon(info.level, info.muted)}
+        </button>
+        <span className="sys-stat-value">
+          {info.muted ? "静音" : `${clampPct(info.level)}%`}
+        </span>
       </div>
-      <div className="sys-bar">
-        <div className="sys-bar-fill" style={{ transform: `scaleX(${fill / 100})` }} />
+      <div
+        className="vol-tile-track"
+        ref={drag.ref}
+        onPointerDown={drag.onPointerDown}
+        onPointerMove={drag.onPointerMove}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="vol-tile-rail">
+          <div className="sys-bar-fill" style={{ transform: `scaleX(${fill / 100})` }} />
+        </div>
       </div>
-      <div className="sys-stat-label">音量</div>
+      <div className="sys-stat-label">音量 · 可拖动</div>
     </div>
   );
 }

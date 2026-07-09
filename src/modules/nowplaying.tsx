@@ -329,49 +329,53 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
     <div className="mod-np-expanded">
       <div className="np-main">
         <CoverArt cover={cover} coverOk={coverOk} variant="full" />
-        <div className="np-meta">
-          <div className="np-title" title={np.title}>
-            {np.title || "未在播放"}
-          </div>
-          <div className="np-artist" title={np.artist}>
-            {np.artist || (np.hasSession ? "" : "打开任意播放器试试")}
-          </div>
-          {np.album ? (
-            <div className="np-album" title={np.album}>
-              {np.album}
+        {/* Right column beside the art: metadata on top, transport controls
+            below — fills the previously-empty space to the right of the cover. */}
+        <div className="np-side">
+          <div className="np-meta">
+            <div className="np-title" title={np.title}>
+              {np.title || "未在播放"}
             </div>
-          ) : null}
+            <div className="np-artist" title={np.artist}>
+              {np.artist || (np.hasSession ? "" : "打开任意播放器试试")}
+            </div>
+            {np.album ? (
+              <div className="np-album" title={np.album}>
+                {np.album}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="np-controls">
+            <button
+              className="np-btn"
+              disabled={!np.canPrevious}
+              onClick={control(mediaPrevious)}
+              aria-label="上一首"
+            >
+              ⏮
+            </button>
+            <button
+              className="np-btn np-btn-main"
+              disabled={!np.canPlayPause}
+              onClick={control(mediaPlayPause)}
+              aria-label={playing ? "暂停" : "播放"}
+            >
+              {playing ? "⏸" : "▶"}
+            </button>
+            <button
+              className="np-btn"
+              disabled={!np.canNext}
+              onClick={control(mediaNext)}
+              aria-label="下一首"
+            >
+              ⏭
+            </button>
+          </div>
         </div>
       </div>
 
       <ProgressBar np={np} />
-
-      <div className="np-controls">
-        <button
-          className="np-btn"
-          disabled={!np.canPrevious}
-          onClick={control(mediaPrevious)}
-          aria-label="上一首"
-        >
-          ⏮
-        </button>
-        <button
-          className="np-btn np-btn-main"
-          disabled={!np.canPlayPause}
-          onClick={control(mediaPlayPause)}
-          aria-label={playing ? "暂停" : "播放"}
-        >
-          {playing ? "⏸" : "▶"}
-        </button>
-        <button
-          className="np-btn"
-          disabled={!np.canNext}
-          onClick={control(mediaNext)}
-          aria-label="下一首"
-        >
-          ⏭
-        </button>
-      </div>
     </div>
   );
 }

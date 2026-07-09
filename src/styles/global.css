@@ -296,8 +296,19 @@ body,
 
 .np-main {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 14px;
+}
+
+/* Right column beside the cover: metadata pinned to the top, transport controls
+   to the bottom so they fill the vertical space next to the 96px art. */
+.np-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .np-cover {
@@ -431,8 +442,8 @@ body,
 .np-controls {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 18px;
+  justify-content: flex-start;
+  gap: 14px;
 }
 
 .np-btn {
@@ -803,6 +814,47 @@ body,
   min-width: 0;
 }
 
+/* Speaker glyph doubles as a mute toggle inside the tile. */
+.vol-tile-speaker {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  flex: none;
+  cursor: pointer;
+  color: inherit;
+}
+
+/* Tall, easy-to-grab hit area with a slim visible rail centered inside. */
+.vol-tile-track {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.vol-tile-rail {
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.vol-tile-track:hover .vol-tile-rail {
+  height: 6px;
+  border-radius: 3px;
+}
+
+/* Snappier than the read-only system bars so dragging feels responsive. */
+.vol-tile-rail .sys-bar-fill {
+  transition: transform 0.12s ease-out;
+}
+
 /* ------------------------------ Settings ------------------------------- */
 
 .settings-panel {
@@ -1121,7 +1173,9 @@ body,
   color: #fff;
 }
 
-/* Full-panel drop hint shown while an OS file drag is over the island. */
+/* Full-panel drop hint shown while an OS file drag is over the island. The dark
+   backdrop is rounded to match the expanded pill, and the dashed "drop zone"
+   frame is inset with its own radius so its corners never clash with the pill. */
 .shelf-drop-overlay {
   position: absolute;
   inset: 0;
@@ -1129,11 +1183,21 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: inherit;
+  border-radius: 28px;
   pointer-events: none;
   background: rgba(20, 22, 30, 0.55);
+  -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
+  overflow: hidden;
+}
+
+.shelf-drop-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 20px;
   border: 2px dashed var(--accent, #6ab0ff);
+  pointer-events: none;
 }
 
 .shelf-drop-inner {
