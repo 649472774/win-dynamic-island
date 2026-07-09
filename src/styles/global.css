@@ -80,6 +80,7 @@ body,
 }
 
 .pill-content.expanded {
+  height: auto;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
@@ -357,20 +358,65 @@ body,
   gap: 5px;
 }
 
+/* The bar is a tall, easy-to-hit target; the visible line sits centered inside
+   it so there's a comfortable grab area even though the track is only 4px. */
 .np-bar {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+}
+
+.np-bar.seekable {
+  cursor: pointer;
+}
+
+.np-bar-track {
+  width: 100%;
   height: 4px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 
+.np-bar.seekable:hover .np-bar-track,
+.np-bar.dragging .np-bar-track {
+  height: 6px;
+  border-radius: 3px;
+}
+
 .np-bar-fill {
   height: 100%;
   width: 100%;
-  border-radius: 2px;
+  border-radius: inherit;
   background: var(--accent);
   transform-origin: left center;
   transition: transform 0.25s linear;
+}
+
+.np-bar.dragging .np-bar-fill {
+  transition: none;
+}
+
+/* Draggable knob, only rendered when the session is seekable. */
+.np-bar-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  transform: translateY(-50%) scale(0);
+  transition: transform 0.12s ease;
+  pointer-events: none;
+}
+
+.np-bar.seekable:hover .np-bar-thumb,
+.np-bar.dragging .np-bar-thumb {
+  transform: translateY(-50%) scale(1);
 }
 
 .np-times {

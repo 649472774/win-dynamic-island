@@ -46,6 +46,8 @@ export interface NowPlaying {
   canNext: boolean;
   canPrevious: boolean;
   canPlayPause: boolean;
+  /** Whether the session supports seeking (drag the progress bar to a position). */
+  canSeek: boolean;
   /** Position (ms) at the instant `updatedAtMs` was sampled. */
   positionMs: number;
   durationMs: number;
@@ -79,6 +81,11 @@ export function mediaNext(): Promise<void> {
 
 export function mediaPrevious(): Promise<void> {
   return invoke("media_previous");
+}
+
+/** Seek the active session to an absolute position (ms from the track start). */
+export function mediaSeek(positionMs: number): Promise<void> {
+  return invoke("media_seek", { positionMs: Math.max(0, Math.round(positionMs)) });
 }
 
 /* --------------------------- System info (M3) --------------------------- */

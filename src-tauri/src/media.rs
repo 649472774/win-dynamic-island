@@ -40,6 +40,8 @@ pub struct NowPlaying {
     pub can_next: bool,
     pub can_previous: bool,
     pub can_play_pause: bool,
+    /// Whether the current session supports seeking (drag to change position).
+    pub can_seek: bool,
     /// Playback position (ms) at the instant `updated_at_ms` was sampled.
     pub position_ms: i64,
     pub duration_ms: i64,
@@ -68,6 +70,7 @@ impl Default for NowPlaying {
             can_next: false,
             can_previous: false,
             can_play_pause: false,
+            can_seek: false,
             position_ms: 0,
             duration_ms: 0,
             updated_at_ms: 0,
@@ -85,6 +88,8 @@ pub enum MediaCmd {
     PlayPause,
     Next,
     Previous,
+    /// Seek the active session to an absolute position (ms from track start).
+    Seek(i64),
 }
 
 /// Shared, always-current full snapshot (with cover) for `get_now_playing`.
@@ -131,7 +136,7 @@ fn track_hash(title: &str, artist: &str, album: &str) -> String {
 /// a playing track emits ~1 Hz but a paused one stays quiet (idle-friendly).
 fn signature(n: &NowPlaying) -> String {
     format!(
-        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         n.has_session,
         n.status,
         n.track_id,
@@ -139,6 +144,7 @@ fn signature(n: &NowPlaying) -> String {
         n.can_next,
         n.can_previous,
         n.can_play_pause,
+        n.can_seek,
         n.position_ms / 500,
         n.cover_changed as u8,
     )
@@ -185,6 +191,11 @@ pub fn media_next(state: State<'_, MediaState>) {
 #[tauri::command]
 pub fn media_previous(state: State<'_, MediaState>) {
     state.send(MediaCmd::Previous);
+}
+
+#[tauri::command]
+pub fn media_seek(state: State<'_, MediaState>, position_ms: i64) {
+    state.send(MediaCmd::Seek(position_ms.max(0)));
 }
 
 // ---------------------------------------------------------------------------
@@ -277,10 +288,22 @@ mod win {
             };
             match rx.recv_timeout(timeout) {
                 Ok(cmd) => {
+                    // A seek needs a slightly longer settle before we re-read, so
+                    // the fresh position reflects where the player actually landed.
+                    let settle = match &cmd {
+                        MediaCmd::Seek(_) => Duration::from_millis(160),
+                        _ => Duration::from_millis(60),
+                    };
                     match cmd {
                         MediaCmd::PlayPause => control(&manager, Ctrl::PlayPause),
                         MediaCmd::Next => control(&manager, Ctrl::Next),
                         MediaCmd::Previous => control(&manager, Ctrl::Previous),
+                        // Seek to an absolute position; force the settle read to
+                        // emit so the bar snaps to the new spot even while paused.
+                        MediaCmd::Seek(ms) => {
+                            seek(&manager, ms);
+                            last_sig.clear();
+                        }
                         // Force the next read to emit even if nothing changed, so
                         // a frontend that subscribed late still receives current
                         // state.
@@ -288,7 +311,7 @@ mod win {
                     }
                     // A control usually only takes effect a beat later; a short
                     // settle read makes our own button presses feel instant.
-                    std::thread::sleep(Duration::from_millis(60));
+                    std::thread::sleep(settle);
                     emit_cycle(
                         &app,
                         &manager,
@@ -342,10 +365,28 @@ mod win {
         }
     }
 
+    /// Seek the active session to `position_ms` measured from the track start.
+    /// Re-anchors to the timeline's `StartTime` (most players use 0, but some
+    /// report a non-zero origin) and converts ms → 100-ns ticks for WinRT.
+    fn seek(manager: &SessionManager, position_ms: i64) {
+        let Some(session) = current_session(manager) else {
+            return;
+        };
+        let start = session
+            .GetTimelineProperties()
+            .ok()
+            .and_then(|t| t.StartTime().ok())
+            .map(|d| d.Duration)
+            .unwrap_or(0);
+        let target = start + position_ms.max(0) * 10_000;
+        if let Ok(op) = session.TryChangePlaybackPositionAsync(target) {
+            let _ = block_on(op);
+        }
+    }
+
     /// Resolve the current session, treating both an `Err` and a null interface
     /// (no active player) as "none".
-    fn current_session(manager: &SessionManager) -> Option<Session> {
-        let session = manager.GetCurrentSession().ok()?;
+    fn current_session(manager: &SessionManager) -> Option<Session> {        let session = manager.GetCurrentSession().ok()?;
         if session.as_raw().is_null() {
             return None;
         }
@@ -399,7 +440,7 @@ mod win {
         };
 
         // Playback status + capabilities.
-        let (status, is_playing, can_next, can_prev, can_pp) = match session.GetPlaybackInfo() {
+        let (status, is_playing, can_next, can_prev, can_pp, can_seek) = match session.GetPlaybackInfo() {
             Ok(info) => {
                 let st = info.PlaybackStatus().unwrap_or(PlaybackStatus::Closed);
                 let (label, is_playing) = match st {
@@ -407,27 +448,32 @@ mod win {
                     PlaybackStatus::Paused => ("paused", false),
                     _ => ("stopped", false),
                 };
-                let (n, p, pp) = match info.Controls() {
+                let (n, p, pp, sk) = match info.Controls() {
                     Ok(c) => (
                         c.IsNextEnabled().unwrap_or(false),
                         c.IsPreviousEnabled().unwrap_or(false),
                         c.IsPlayEnabled().unwrap_or(false)
                             || c.IsPauseEnabled().unwrap_or(false)
                             || c.IsPlayPauseToggleEnabled().unwrap_or(false),
+                        c.IsPlaybackPositionEnabled().unwrap_or(false),
                     ),
-                    Err(_) => (false, false, false),
+                    Err(_) => (false, false, false, false),
                 };
-                (label, is_playing, n, p, pp)
+                (label, is_playing, n, p, pp, sk)
             }
-            Err(_) => ("stopped", false, false, false, false),
+            Err(_) => ("stopped", false, false, false, false, false),
         };
 
-        // Timeline (position / duration), in ms.
+        // Timeline (position / duration), in ms. Measured relative to StartTime
+        // so players that report a non-zero origin still show 0-based progress.
         let (position_ms, duration_ms) = match session.GetTimelineProperties() {
             Ok(t) => {
-                let pos = t.Position().map(|d| d.Duration / 10_000).unwrap_or(0);
-                let end = t.EndTime().map(|d| d.Duration / 10_000).unwrap_or(0);
-                (pos.max(0), end.max(0))
+                let start = t.StartTime().map(|d| d.Duration).unwrap_or(0);
+                let end = t.EndTime().map(|d| d.Duration).unwrap_or(0);
+                let pos = t.Position().map(|d| d.Duration).unwrap_or(0);
+                let dur = (end - start).max(0) / 10_000;
+                let position = (pos - start).max(0) / 10_000;
+                (position, dur)
             }
             Err(_) => (0, 0),
         };
@@ -491,6 +537,7 @@ mod win {
             can_next,
             can_previous: can_prev,
             can_play_pause: can_pp,
+            can_seek,
             position_ms,
             duration_ms,
             updated_at_ms,

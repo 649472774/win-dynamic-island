@@ -7,7 +7,7 @@
  * first paint); this module keeps a small local store and interpolates the
  * progress bar locally so it advances smoothly between the ~1 Hz updates.
  */
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
@@ -17,6 +17,7 @@ import {
   mediaNext,
   mediaPlayPause,
   mediaPrevious,
+  mediaSeek,
   onNowPlaying,
   type NowPlaying,
 } from "../lib/native";
@@ -30,6 +31,7 @@ const EMPTY: NowPlaying = {
   canNext: false,
   canPrevious: false,
   canPlayPause: false,
+  canSeek: false,
   positionMs: 0,
   durationMs: 0,
   updatedAtMs: 0,
@@ -179,6 +181,76 @@ function control(fn: () => Promise<void>) {
 }
 
 /**
+ * Interactive seek bar. Shows the current position, total duration, and — when
+ * the session reports it's seekable — a draggable thumb that lets the user
+ * scrub. While dragging we optimistically show the scrubbed position, then send
+ * the seek to Rust on release. All pointer/click events stop propagation so a
+ * scrub never bubbles up to the pill's expand/collapse toggle.
+ */
+function ProgressBar({ np }: { np: NowPlaying }) {
+  const dur = np.durationMs;
+  const seekable = np.canSeek && dur > 0;
+  const barRef = useRef<HTMLDivElement>(null);
+  const [scrub, setScrub] = useState<number | null>(null);
+
+  const pos = scrub != null ? scrub : liveMs(np);
+  const pct = dur > 0 ? Math.min(100, Math.max(0, (pos / dur) * 100)) : 0;
+
+  const posFromClientX = (clientX: number): number => {
+    const el = barRef.current;
+    if (!el || dur <= 0) return 0;
+    const rect = el.getBoundingClientRect();
+    const frac = rect.width > 0 ? (clientX - rect.left) / rect.width : 0;
+    return Math.min(dur, Math.max(0, frac * dur));
+  };
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (!seekable) return;
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setScrub(posFromClientX(e.clientX));
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    if (scrub == null) return;
+    e.stopPropagation();
+    setScrub(posFromClientX(e.clientX));
+  };
+  const onPointerUp = (e: ReactPointerEvent) => {
+    if (scrub == null) return;
+    e.stopPropagation();
+    const target = scrub;
+    setScrub(null);
+    void mediaSeek(target).catch(() => {});
+  };
+
+  return (
+    <div className="np-progress">
+      <div
+        ref={barRef}
+        className={`np-bar${seekable ? " seekable" : ""}${scrub != null ? " dragging" : ""}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="np-bar-track">
+          <div className="np-bar-fill" style={{ transform: `scaleX(${pct / 100})` }} />
+        </div>
+        {seekable ? (
+          <div className="np-bar-thumb" style={{ left: `${pct}%` }} />
+        ) : null}
+      </div>
+      <div className="np-times">
+        <span>{fmt(pos)}</span>
+        <span>{dur > 0 ? fmt(dur) : "--:--"}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Cover art with a graceful fallback to a music note. Rendering is gated on the
  * store's `coverOk` flag (set by an off-screen probe in `validateCover`), so the
  * visible <img> is only ever mounted with a src we've confirmed decodes — the
@@ -251,9 +323,6 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
     return () => window.clearInterval(id);
   }, [expanded, np.status, np.trackId]);
 
-  const pos = liveMs(np);
-  const dur = np.durationMs;
-  const pct = dur > 0 ? Math.min(100, (pos / dur) * 100) : 0;
   const playing = np.status === "playing";
 
   return (
@@ -275,18 +344,7 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
         </div>
       </div>
 
-      <div className="np-progress">
-        <div className="np-bar">
-          <div
-            className="np-bar-fill"
-            style={{ transform: `scaleX(${pct / 100})` }}
-          />
-        </div>
-        <div className="np-times">
-          <span>{fmt(pos)}</span>
-          <span>{dur > 0 ? fmt(dur) : "--:--"}</span>
-        </div>
-      </div>
+      <ProgressBar np={np} />
 
       <div className="np-controls">
         <button

@@ -68,6 +68,7 @@ pub fn run() {
             media::media_play_pause,
             media::media_next,
             media::media_previous,
+            media::media_seek,
             system::get_system_info,
             volume::get_volume,
             volume::set_volume,

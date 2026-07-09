@@ -8,7 +8,7 @@
  * (stable WebView viewport) while giving us a real acrylic pill and automatic
  * click-through everywhere outside it.
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
 import { useIsland, type IslandState } from "../store/island";
 import { useModulesVersion } from "../store/modules";
@@ -43,6 +43,26 @@ export default function Island() {
   const revealed = useRef(false);
   const collapseTimer = useRef<number | null>(null);
 
+  // The expanded panel auto-sizes to its content so nothing is clipped when
+  // several modules are shown at once (e.g. Now Playing + a tall system card).
+  // We measure the live content height via a ResizeObserver and animate the pill
+  // to it, clamped to the window viewport so it can never grow off-screen.
+  const [expandedH, setExpandedH] = useState(SIZES.expanded.h);
+  const contentRO = useRef<ResizeObserver | null>(null);
+  const measureExpanded = useCallback((el: HTMLDivElement | null) => {
+    contentRO.current?.disconnect();
+    contentRO.current = null;
+    if (!el) return;
+    const measure = () => {
+      const maxH = Math.max(200, window.innerHeight - 4);
+      setExpandedH(Math.min(el.scrollHeight, maxH));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    contentRO.current = ro;
+  }, []);
+
   const allModules = getAllModules();
   const tiles = allModules.filter((m) => m.Tile);
   const primary = getPrimaryModule();
@@ -51,7 +71,11 @@ export default function Island() {
   const hudModule = hud ? allModules.find((m) => m.id === hud.kind) : undefined;
   const showingHud = !expanded && !!hudModule?.Hud;
 
-  const size = showingHud ? HUD_SIZE : SIZES[state];
+  const size = showingHud
+    ? HUD_SIZE
+    : expanded
+      ? { ...SIZES.expanded, h: expandedH }
+      : SIZES[state];
 
   /** Measure the pill and push its rounded rect (in physical px) to Rust. */
   const reportRegion = useCallback(() => {
@@ -136,6 +160,7 @@ export default function Island() {
           {expanded ? (
             <motion.div
               key="expanded"
+              ref={measureExpanded}
               className="pill-content expanded"
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
