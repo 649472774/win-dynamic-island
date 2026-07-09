@@ -1,4 +1,5 @@
 mod clipboard;
+mod dragdrop;
 mod media;
 mod system;
 mod tray;
@@ -111,6 +112,12 @@ pub fn run() {
             // asserts topmost now.
             window::install_topmost_guard(&win);
             window::raise_topmost(&win);
+
+            // Register a native OLE drop target (M4f). wry's built-in file-drop
+            // events never fire on our transparent (layered) window, so we roll
+            // our own IDropTarget here on the main/UI thread. This is what makes
+            // "drag a file onto the island" actually work.
+            dragdrop::install(app.handle());
 
             // Start the Now Playing (SMTC) worker and expose its state.
             let media_state = media::init(app.handle());

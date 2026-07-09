@@ -23,7 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { LazyStore } from "@tauri-apps/plugin-store";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@tauri-apps/api/event";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { registerModule } from "./registry";
@@ -168,36 +168,36 @@ const useShelf = create<ShelfStore>((set, get) => ({
 /**
  * App-level drag catcher — call this once from the always-mounted Island shell.
  *
- * The OS drag-drop modal loop never fires DOM `mouseenter`, so the pill's normal
- * hover→expand path can't react to a drag. Instead we listen to the native
- * `onDragDropEvent` unconditionally: on enter/over we flip `dragActive`, which
- * force-expands the panel into a large drop target; on drop we stash the files;
- * on leave we release and let the island linger-collapse.
+ * The OS drag-drop modal loop never fires DOM `mouseenter`, and wry's built-in
+ * `onDragDropEvent` never fires at all on our transparent (layered) window. So a
+ * native `IDropTarget` in Rust (see `src-tauri/src/dragdrop.rs`) forwards the OS
+ * drag gesture to us as custom Tauri events: on `shelf-drag-enter` we flip
+ * `dragActive` (force-expanding the panel into a large drop target), on
+ * `shelf-drop` we stash the files, and on `shelf-drag-leave` we release and let
+ * the island linger-collapse.
  */
 export function useShelfDrag() {
   useEffect(() => {
     if (!useShelf.getState().hydrated) void useShelf.getState().hydrate();
-    let un: (() => void) | undefined;
     let alive = true;
-    void getCurrentWebview()
-      .onDragDropEvent((event) => {
-        const p = event.payload;
-        if (p.type === "enter" || p.type === "over") {
-          useIsland.getState().setDragActive(true);
-        } else if (p.type === "leave") {
-          useIsland.getState().setDragActive(false);
-        } else if (p.type === "drop") {
-          useIsland.getState().setDragActive(false);
-          if (p.paths?.length) useShelf.getState().addFiles(p.paths);
-        }
-      })
-      .then((f) => {
-        if (alive) un = f;
-        else f();
-      });
+    const uns: Array<() => void> = [];
+    const track = (p: Promise<() => void>) => {
+      void p.then((f) => (alive ? uns.push(f) : f()));
+    };
+
+    track(listen("shelf-drag-enter", () => useIsland.getState().setDragActive(true)));
+    track(listen("shelf-drag-leave", () => useIsland.getState().setDragActive(false)));
+    track(
+      listen<string[]>("shelf-drop", (event) => {
+        useIsland.getState().setDragActive(false);
+        const paths = event.payload;
+        if (paths?.length) useShelf.getState().addFiles(paths);
+      }),
+    );
+
     return () => {
       alive = false;
-      un?.();
+      uns.forEach((f) => f());
     };
   }, []);
 }
