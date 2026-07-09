@@ -32,6 +32,11 @@ fn spawn_monitor_watcher(app: &tauri::AppHandle) {
             // `ensure_region` only re-applies when the live region no longer
             // matches, so this self-heals without ever disturbing a live morph.
             window::ensure_region(&win);
+            // Safety net for staying on top: the foreground WinEvent hook handles
+            // the common case (another app coming forward) instantly, but some
+            // windows appear topmost without a foreground event. Re-asserting here
+            // (a no-op when already on top) covers those without added flicker.
+            window::raise_topmost(&win);
             if let Ok(Some(monitor)) = win.primary_monitor() {
                 let p = monitor.position();
                 let s = monitor.size();
@@ -85,6 +90,12 @@ pub fn run() {
             // of the window fully transparent and click-through.
             window::make_tool_window(&win);
             window::center_top(&win);
+            // Keep the island reliably above other windows. Installs a
+            // foreground WinEvent hook (must run on this main/UI thread so its
+            // out-of-context callbacks are pumped by tao's event loop) and
+            // asserts topmost now.
+            window::install_topmost_guard(&win);
+            window::raise_topmost(&win);
 
             // Start the Now Playing (SMTC) worker and expose its state.
             let media_state = media::init(app.handle());

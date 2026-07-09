@@ -16,6 +16,8 @@
 //! runs perfectly smooth.
 
 use std::sync::Mutex;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 use serde::Deserialize;
 use tauri::{Manager, PhysicalPosition, Runtime, WebviewWindow};
@@ -25,11 +27,14 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, GetWindowRgnBox, SetWindowRgn};
 #[cfg(windows)]
+use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+#[cfg(windows)]
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, MA_NOACTIVATE, WM_MOUSEACTIVATE,
-    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, EVENT_SYSTEM_FOREGROUND, GWL_EXSTYLE,
+    HWND_TOPMOST, MA_NOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WINEVENT_OUTOFCONTEXT,
+    WINEVENT_SKIPOWNPROCESS, WM_MOUSEACTIVATE, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 /// Logical gap (in CSS pixels) between the top of the screen and the island.
@@ -138,6 +143,102 @@ pub fn make_tool_window<R: Runtime>(window: &WebviewWindow<R>) {
     let _ = window;
 }
 
+/// Re-assert the window's spot at the top of the always-on-top Z band.
+///
+/// Windows "topmost" is not a hard guarantee: another topmost window, a
+/// full-screen app, or an app calling `SetForegroundWindow` can end up above
+/// ours. Re-inserting at `HWND_TOPMOST` with `SWP_NOACTIVATE` (so we never steal
+/// focus) and no move/resize restores the island to the front without disturbing
+/// the user's active window. Cheap enough to call on every foreground change and
+/// once per watcher tick; a no-op (no flicker) when we are already on top.
+pub fn raise_topmost<R: Runtime>(window: &WebviewWindow<R>) {
+    #[cfg(windows)]
+    unsafe {
+        if let Some(hwnd) = hwnd_of(window) {
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
+/// Raw handle of the island window, stashed so the (context-free) WinEvent hook
+/// callback can address it. `0` until the guard is installed.
+#[cfg(windows)]
+static ISLAND_HWND: AtomicIsize = AtomicIsize::new(0);
+/// Ensures the foreground hook is installed at most once for the app lifetime.
+#[cfg(windows)]
+static TOPMOST_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+/// WinEvent callback fired whenever *another* window becomes the foreground
+/// window — precisely the moment something might occlude the island. Re-asserts
+/// topmost instantly so the pill pops back before it can be visibly covered.
+/// Event-driven, so there is no idle polling cost.
+#[cfg(windows)]
+unsafe extern "system" fn foreground_event_proc(
+    _hook: HWINEVENTHOOK,
+    _event: u32,
+    _hwnd: HWND,
+    _id_object: i32,
+    _id_child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    let raw = ISLAND_HWND.load(Ordering::Relaxed);
+    if raw != 0 {
+        let _ = SetWindowPos(
+            HWND(raw as _),
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
+/// Install a system-wide foreground hook that keeps the island reliably above
+/// other windows. Idempotent (installs once). **Must be called on the main (UI)
+/// thread**: `WINEVENT_OUTOFCONTEXT` callbacks are delivered through that
+/// thread's message loop (tao's event loop), and the hook is bound to the
+/// installing thread.
+pub fn install_topmost_guard<R: Runtime>(window: &WebviewWindow<R>) {
+    #[cfg(windows)]
+    unsafe {
+        if let Some(hwnd) = hwnd_of(window) {
+            ISLAND_HWND.store(hwnd.0 as isize, Ordering::Relaxed);
+        }
+        if TOPMOST_HOOK_INSTALLED.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        // Hook foreground changes across all processes (idprocess/idthread = 0).
+        // The callback is a single atomic load + `SetWindowPos`, and foreground
+        // changes are user-driven and infrequent, so idle cost stays at zero.
+        // `WINEVENT_SKIPOWNPROCESS` avoids reacting to our own windows.
+        let _hook = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(foreground_event_proc),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        );
+        // The hook handle is intentionally leaked: it lives for the whole app.
+    }
+    #[cfg(not(windows))]
+    let _ = window;
+}
+
 /// Clip the window to a rounded rectangle. Everything outside becomes
 /// click-through and the Acrylic backdrop is shaped into the pill.
 pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
@@ -158,7 +259,6 @@ pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
         *state.last.lock().unwrap() = Some(r);
     }
 }
-
 /// Re-assert the pill region if Windows has silently dropped or changed it.
 ///
 /// `SetWindowRgn` can be cleared out from under us by tao/WebView2's asynchronous
@@ -210,6 +310,8 @@ fn spawn_region_settle<R: Runtime>(window: &WebviewWindow<R>) {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if let Some(win) = app.get_webview_window("main") {
                 ensure_region(&win);
+                // The same late init can also shuffle Z-order; keep us on top.
+                raise_topmost(&win);
             }
         }
     });
@@ -278,6 +380,9 @@ pub fn reveal_island<R: Runtime>(window: WebviewWindow<R>) {
     make_tool_window(&window);
     center_top(&window);
     let _ = window.show();
+    // Assert topmost right after showing so nothing that was created while we
+    // were hidden ends up above us.
+    raise_topmost(&window);
     // Guard against the region being cleared by tao/WebView2's late init right
     // after the window becomes visible (which would flash the full grey box).
     ensure_region(&window);
