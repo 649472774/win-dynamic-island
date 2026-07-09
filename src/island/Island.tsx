@@ -16,6 +16,7 @@ import { useModulesVersion } from "../store/modules";
 import { useSettings } from "../store/settings";
 import { recenter, revealIsland, setIslandRegion } from "../lib/native";
 import { getAllModules, getPrimaryModule } from "../modules";
+import { useShelfDrag } from "../modules/shelf";
 import SettingsPanel from "./SettingsPanel";
 import "../modules"; // ensure built-in modules register
 
@@ -40,13 +41,21 @@ export default function Island() {
   const settingsOpen = useIsland((s) => s.settingsOpen);
   const openSettings = useIsland((s) => s.openSettings);
   const hud = useIsland((s) => s.hud);
+  const dragActive = useIsland((s) => s.dragActive);
   // Re-evaluate the active module set when a module's activeness flips (e.g.
   // music starts/stops) even if the island state itself hasn't changed.
   useModulesVersion((s) => s.v);
 
+  // Always-on OS drag catcher: dragging files toward the island auto-expands it
+  // into a drop target (Yoink-style), even while collapsed.
+  useShelfDrag();
+
   const pillRef = useRef<HTMLDivElement>(null);
   const revealed = useRef(false);
   const collapseTimer = useRef<number | null>(null);
+  // Tracks real mouse-hover so a drag release doesn't collapse a pill the user
+  // is actively pointing at.
+  const hovering = useRef(false);
 
   // The expanded panel auto-sizes to its content so nothing is clipped when
   // several modules are shown at once (e.g. Now Playing + a tall system card).
@@ -145,20 +154,41 @@ export default function Island() {
     }
   };
 
-  const scheduleCollapse = () => {
+  // Collapse after `delay`, but never while a drag is in flight or the mouse is
+  // actually over the pill (both are re-checked when the timer fires).
+  const scheduleCollapse = (delay = 160) => {
     clearCollapse();
-    collapseTimer.current = window.setTimeout(() => setState("collapsed"), 160);
+    collapseTimer.current = window.setTimeout(() => {
+      collapseTimer.current = null;
+      if (useIsland.getState().dragActive || hovering.current) return;
+      setState("collapsed");
+    }, delay);
   };
 
+  // Drag lifecycle: while a file is being dragged onto the island keep it open;
+  // once the drag ends (drop or leave) linger a beat (Yoink-like) then collapse
+  // unless the user has since moved the mouse onto the panel.
+  useEffect(() => {
+    if (dragActive) {
+      clearCollapse();
+    } else if (!hovering.current) {
+      scheduleCollapse(1200);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragActive]);
+
   const onEnter = () => {
+    hovering.current = true;
     clearCollapse();
     if (state === "collapsed") setState("hover");
   };
 
   const onLeave = () => {
+    hovering.current = false;
     // Leaving the pill region also means the OS cursor left the window; give a
-    // short grace period so edge jitter doesn't flip the state.
-    if (state !== "collapsed") scheduleCollapse();
+    // short grace period so edge jitter doesn't flip the state. Never collapse
+    // out from under an in-flight drag.
+    if (state !== "collapsed" && !useIsland.getState().dragActive) scheduleCollapse();
   };
 
   const onClick = () => {
@@ -190,6 +220,11 @@ export default function Island() {
               exit={{ opacity: 0, y: -6 }}
               transition={FADE}
             >
+              {dragActive && (
+                <div className="shelf-drop-overlay">
+                  <div className="shelf-drop-inner">📎 松开鼠标放入暂存架</div>
+                </div>
+              )}
               {settingsOpen ? (
                 <SettingsPanel />
               ) : (

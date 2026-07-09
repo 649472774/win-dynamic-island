@@ -29,6 +29,14 @@ interface IslandStore {
    *  new flash arrives (so rapid volume changes keep it visible). */
   showHud: (kind: string) => void;
   clearHud: () => void;
+  /** True while an OS file drag is hovering the island (Yoink-style catch).
+   *  Forces the panel open and blocks collapse so the user can drop. */
+  dragActive: boolean;
+  /** Set the drag-active flag; turning it on force-expands the panel and drops
+   *  the settings view so the drop zone is front and center. */
+  setDragActive: (b: boolean) => void;
+  /** Expand the island straight to the module grid (used to surface the shelf). */
+  openShelf: () => void;
 }
 
 /** How long a HUD stays up after the last change. */
@@ -68,4 +76,12 @@ export const useIsland = create<IslandStore>((set, get) => ({
     }
     set({ hud: null });
   },
+  dragActive: false,
+  setDragActive: (b) =>
+    set(
+      b
+        ? { dragActive: true, state: "expanded", settingsOpen: false }
+        : { dragActive: false },
+    ),
+  openShelf: () => set({ state: "expanded", settingsOpen: false }),
 }));

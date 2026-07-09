@@ -44,6 +44,10 @@ windows = { version = "0.62.2", features = [
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant",
+  # M4 (Yoink shelf): clipboard copy-out / paste-in (CF_HDROP + CF_UNICODETEXT)
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
   # M3: system info (battery / CPU / memory)
   "Win32_System_Power",
   "Win32_System_SystemInformation",

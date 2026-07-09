@@ -86,6 +86,7 @@ body,
   justify-content: flex-start;
   padding: 14px 16px;
   gap: 10px;
+  position: relative;
 }
 
 /* ----------------------------- Clock module ----------------------- */
@@ -954,7 +955,18 @@ body,
 .shelf-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
+}
+
+.shelf-count {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.shelf-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
 }
 
 .shelf-title {
@@ -1064,5 +1076,72 @@ body,
 .shelf-item-actions button:hover {
   background: rgba(255, 255, 255, 0.14);
   color: var(--text);
+}
+
+.shelf-item.kind-text {
+  cursor: default;
+}
+
+.shelf-note {
+  font-size: 11px;
+  color: var(--accent, #6ab0ff);
+  padding: 2px 2px 0;
+}
+
+.shelf-bulk {
+  display: flex;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.shelf-bulk button {
+  appearance: none;
+  border: none;
+  flex: 1;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.shelf-bulk button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.shelf-bulk .shelf-clear {
+  flex: 0 0 64px;
+  color: var(--text-dim);
+}
+
+.shelf-bulk .shelf-clear:hover {
+  background: rgba(255, 90, 90, 0.22);
+  color: #fff;
+}
+
+/* Full-panel drop hint shown while an OS file drag is over the island. */
+.shelf-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  pointer-events: none;
+  background: rgba(20, 22, 30, 0.55);
+  backdrop-filter: blur(2px);
+  border: 2px dashed var(--accent, #6ab0ff);
+}
+
+.shelf-drop-inner {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
 }
 

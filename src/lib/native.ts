@@ -142,3 +142,27 @@ export function setVolume(level: number): Promise<void> {
 export function setMuted(muted: boolean): Promise<void> {
   return invoke("set_muted", { muted });
 }
+
+/* ------------------------- Clipboard / Shelf (M4) ------------------------- */
+
+/** Files + text read off the clipboard (mirrors Rust `ClipboardData`). */
+export interface ClipboardData {
+  files: string[];
+  text: string;
+}
+
+/** Put real files on the clipboard as CF_HDROP — the user can then paste them
+ *  into Explorer to get a true file copy (Yoink-style "get it back out"). */
+export function clipboardCopyFiles(paths: string[]): Promise<void> {
+  return invoke("clipboard_copy_files", { paths });
+}
+
+/** Put plain text on the clipboard (for stashed text snippets). */
+export function clipboardCopyText(text: string): Promise<void> {
+  return invoke("clipboard_copy_text", { text });
+}
+
+/** Read files and/or text off the clipboard (used by "从剪贴板添加"). */
+export function clipboardRead(): Promise<ClipboardData> {
+  return invoke("clipboard_read");
+}

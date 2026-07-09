@@ -1,18 +1,24 @@
 /**
- * File Shelf (M4d).
+ * File Shelf (M4d) — Yoink-style.
  *
- * A panel-only module: a drop zone in the expanded panel where files can be
- * stashed temporarily and retrieved later. Items persist to disk (shelf.json)
- * so the shelf survives restarts until the user removes them.
+ * A temporary staging shelf living in the expanded panel. It holds *references*
+ * to files (paths, not copies) plus optional text snippets, and persists to disk
+ * (shelf.json) so it survives restarts until you remove items.
  *
- * Getting files back:
- *   - "打开" opens the file with its default app.
- *   - "定位" reveals it in File Explorer.
- *   - Items are HTML5-draggable as a best-effort drag-out (drops the path as
- *     text / file URI; true OLE file drag-out onto Explorer is a future add).
+ * How it works (mirrors macOS Yoink / Dropover):
+ *   - Drag any file(s) toward the island → the moment the OS drag enters the
+ *     window the island auto-expands into a big drop target (see `useShelfDrag`,
+ *     wired app-level from the Island so it's always listening, even while the
+ *     pill is collapsed). Let go to stash them.
+ *   - "＋" opens a native file dialog (always-reliable path).
+ *   - "从剪贴板添加" pulls files or text off the clipboard.
  *
- * Stashing files: OS drag-drop onto the expanded panel, or the "添加文件"
- * button (native file dialog) as a always-reliable path.
+ * Getting things back out:
+ *   - "复制" puts the real file(s) on the clipboard as CF_HDROP — paste into any
+ *     Explorer folder for a true file copy (the reliable Windows equivalent of
+ *     Yoink's drag-out). Text items copy as plain text.
+ *   - "打开" opens with the default app; "定位" reveals in Explorer.
+ *   - File rows stay HTML5-draggable as a best-effort drag-out onto other apps.
  */
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
@@ -22,10 +28,21 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
+import { useIsland } from "../store/island";
+import { clipboardCopyFiles, clipboardCopyText, clipboardRead } from "../lib/native";
+
+type ShelfKind = "file" | "text";
 
 interface ShelfItem {
-  path: string;
+  /** Stable id: the path for files, a random uuid for text snippets. */
+  id: string;
+  kind: ShelfKind;
+  /** Display label (basename for files, first line for text). */
   name: string;
+  /** File path (file items only). */
+  path?: string;
+  /** Snippet body (text items only). */
+  text?: string;
 }
 
 const store = new LazyStore("shelf.json");
@@ -40,6 +57,44 @@ function fileUrl(p: string): string {
   return "file:///" + p.replace(/\\/g, "/");
 }
 
+/** First non-empty line, trimmed and clipped, for a text item's label. */
+function textLabel(t: string): string {
+  const line = t.split(/\r?\n/).find((l) => l.trim()) ?? t;
+  const s = line.trim();
+  return s.length > 40 ? s.slice(0, 40) + "…" : s || "文本片段";
+}
+
+function newId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return "t-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+  }
+}
+
+/** Normalize any persisted (possibly legacy `{path,name}`) entry into a full
+ *  ShelfItem, dropping anything unusable. */
+function normalize(raw: unknown): ShelfItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (o.kind === "text" && typeof o.text === "string") {
+    return {
+      id: typeof o.id === "string" ? o.id : newId(),
+      kind: "text",
+      name: typeof o.name === "string" ? o.name : textLabel(o.text),
+      text: o.text,
+    };
+  }
+  const path = typeof o.path === "string" ? o.path : null;
+  if (!path) return null;
+  return {
+    id: path,
+    kind: "file",
+    name: typeof o.name === "string" ? o.name : baseName(path),
+    path,
+  };
+}
+
 function persist(items: ShelfItem[]): Promise<void> {
   return store
     .set(K_ITEMS, items)
@@ -50,37 +105,59 @@ function persist(items: ShelfItem[]): Promise<void> {
 interface ShelfStore {
   items: ShelfItem[];
   hydrated: boolean;
-  add: (paths: string[]) => void;
-  remove: (path: string) => void;
+  addFiles: (paths: string[]) => number;
+  addText: (text: string) => boolean;
+  remove: (id: string) => void;
+  clear: () => void;
   hydrate: () => Promise<void>;
 }
 
 const useShelf = create<ShelfStore>((set, get) => ({
   items: [],
   hydrated: false,
-  add: (paths) => {
+  addFiles: (paths) => {
     const cur = get().items;
-    const seen = new Set(cur.map((i) => i.path));
+    const seen = new Set(cur.filter((i) => i.kind === "file").map((i) => i.path));
     const next = [...cur];
+    let added = 0;
     for (const p of paths) {
       if (!p || seen.has(p)) continue;
       seen.add(p);
-      next.push({ path: p, name: baseName(p) });
+      next.push({ id: p, kind: "file", name: baseName(p), path: p });
+      added++;
     }
-    if (next.length !== cur.length) {
+    if (added) {
       set({ items: next });
       void persist(next);
     }
+    return added;
   },
-  remove: (path) => {
-    const next = get().items.filter((i) => i.path !== path);
+  addText: (text) => {
+    const t = text?.trim();
+    if (!t) return false;
+    const item: ShelfItem = { id: newId(), kind: "text", name: textLabel(t), text: t };
+    const next = [...get().items, item];
+    set({ items: next });
+    void persist(next);
+    return true;
+  },
+  remove: (id) => {
+    const next = get().items.filter((i) => i.id !== id);
     set({ items: next });
     void persist(next);
   },
+  clear: () => {
+    if (!get().items.length) return;
+    set({ items: [] });
+    void persist([]);
+  },
   hydrate: async () => {
     try {
-      const saved = await store.get<ShelfItem[]>(K_ITEMS);
-      if (Array.isArray(saved)) set({ items: saved });
+      const saved = await store.get<unknown[]>(K_ITEMS);
+      if (Array.isArray(saved)) {
+        const items = saved.map(normalize).filter((x): x is ShelfItem => !!x);
+        set({ items });
+      }
     } catch {
       /* keep empty */
     }
@@ -88,16 +165,16 @@ const useShelf = create<ShelfStore>((set, get) => ({
   },
 }));
 
-function ShelfTile(_props: IslandModuleProps) {
-  const items = useShelf((s) => s.items);
-  const add = useShelf((s) => s.add);
-  const remove = useShelf((s) => s.remove);
-  const [over, setOver] = useState(false);
-  // `add` is a stable zustand action, but capture via ref so the drop listener
-  // effect can run exactly once (not re-subscribe on every render).
-  const addRef = useRef(add);
-  addRef.current = add;
-
+/**
+ * App-level drag catcher — call this once from the always-mounted Island shell.
+ *
+ * The OS drag-drop modal loop never fires DOM `mouseenter`, so the pill's normal
+ * hover→expand path can't react to a drag. Instead we listen to the native
+ * `onDragDropEvent` unconditionally: on enter/over we flip `dragActive`, which
+ * force-expands the panel into a large drop target; on drop we stash the files;
+ * on leave we release and let the island linger-collapse.
+ */
+export function useShelfDrag() {
   useEffect(() => {
     if (!useShelf.getState().hydrated) void useShelf.getState().hydrate();
     let un: (() => void) | undefined;
@@ -105,11 +182,13 @@ function ShelfTile(_props: IslandModuleProps) {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         const p = event.payload;
-        if (p.type === "enter" || p.type === "over") setOver(true);
-        else if (p.type === "leave") setOver(false);
-        else if (p.type === "drop") {
-          setOver(false);
-          if (p.paths?.length) addRef.current(p.paths);
+        if (p.type === "enter" || p.type === "over") {
+          useIsland.getState().setDragActive(true);
+        } else if (p.type === "leave") {
+          useIsland.getState().setDragActive(false);
+        } else if (p.type === "drop") {
+          useIsland.getState().setDragActive(false);
+          if (p.paths?.length) useShelf.getState().addFiles(p.paths);
         }
       })
       .then((f) => {
@@ -121,86 +200,220 @@ function ShelfTile(_props: IslandModuleProps) {
       un?.();
     };
   }, []);
+}
+
+function ShelfTile(_props: IslandModuleProps) {
+  const items = useShelf((s) => s.items);
+  const addFiles = useShelf((s) => s.addFiles);
+  const addText = useShelf((s) => s.addText);
+  const remove = useShelf((s) => s.remove);
+  const clear = useShelf((s) => s.clear);
+  const [note, setNote] = useState<string>("");
+  const noteTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!useShelf.getState().hydrated) void useShelf.getState().hydrate();
+    return () => {
+      if (noteTimer.current) window.clearTimeout(noteTimer.current);
+    };
+  }, []);
+
+  const flash = (msg: string) => {
+    setNote(msg);
+    if (noteTimer.current) window.clearTimeout(noteTimer.current);
+    noteTimer.current = window.setTimeout(() => setNote(""), 1400);
+  };
+
+  const fileItems = items.filter((i) => i.kind === "file");
 
   const pickFiles = async () => {
     try {
       const sel = await openDialog({ multiple: true, title: "添加到暂存架" });
       if (!sel) return;
-      addRef.current(Array.isArray(sel) ? sel : [sel]);
+      const n = addFiles(Array.isArray(sel) ? sel : [sel]);
+      if (n) flash(`已添加 ${n} 个文件`);
     } catch {
       /* user cancelled or dialog unavailable */
     }
   };
 
+  const pasteFromClipboard = async () => {
+    try {
+      const data = await clipboardRead();
+      if (data.files?.length) {
+        const n = addFiles(data.files);
+        flash(n ? `从剪贴板添加 ${n} 个文件` : "文件已在架上");
+      } else if (data.text?.trim()) {
+        addText(data.text);
+        flash("已添加文本片段");
+      } else {
+        flash("剪贴板为空");
+      }
+    } catch {
+      flash("读取剪贴板失败");
+    }
+  };
+
+  const copyAll = async () => {
+    try {
+      if (fileItems.length) {
+        await clipboardCopyFiles(fileItems.map((i) => i.path!));
+        flash(`已复制 ${fileItems.length} 个文件，可粘贴到资源管理器`);
+      } else {
+        const text = items
+          .filter((i) => i.kind === "text")
+          .map((i) => i.text!)
+          .join("\n");
+        if (!text) return;
+        await clipboardCopyText(text);
+        flash("已复制全部文本");
+      }
+    } catch {
+      flash("复制失败");
+    }
+  };
+
+  const copyOne = async (it: ShelfItem) => {
+    try {
+      if (it.kind === "file") {
+        await clipboardCopyFiles([it.path!]);
+        flash("已复制文件，可粘贴到资源管理器");
+      } else {
+        await clipboardCopyText(it.text!);
+        flash("已复制文本");
+      }
+    } catch {
+      flash("复制失败");
+    }
+  };
+
   return (
-    <div
-      className={`sys-tile shelf-tile${over ? " drag-over" : ""}`}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div className="sys-tile shelf-tile" onClick={(e) => e.stopPropagation()}>
       <div className="shelf-head">
         <span className="shelf-title">📎 暂存架</span>
-        <button
-          className="shelf-add"
-          onClick={(e) => {
-            e.stopPropagation();
-            void pickFiles();
-          }}
-          title="添加文件"
-        >
-          ＋
-        </button>
+        <span className="shelf-count">{items.length ? `${items.length} 项` : ""}</span>
+        <span className="shelf-head-actions">
+          <button
+            className="shelf-add"
+            onClick={(e) => {
+              e.stopPropagation();
+              void pasteFromClipboard();
+            }}
+            title="从剪贴板添加文件 / 文本"
+          >
+            📋
+          </button>
+          <button
+            className="shelf-add"
+            onClick={(e) => {
+              e.stopPropagation();
+              void pickFiles();
+            }}
+            title="添加文件"
+          >
+            ＋
+          </button>
+        </span>
       </div>
 
+      {note ? <div className="shelf-note">{note}</div> : null}
+
       {items.length === 0 ? (
-        <div className="shelf-empty">拖拽文件到这里暂存，或点击 ＋ 添加</div>
+        <div className="shelf-empty">
+          把文件拖向灵动岛即可暂存（拖近会自动展开），或点 ＋ / 📋 添加
+        </div>
       ) : (
-        <ul className="shelf-list">
-          {items.map((it) => (
-            <li
-              key={it.path}
-              className="shelf-item"
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("text/plain", it.path);
-                e.dataTransfer.setData("text/uri-list", fileUrl(it.path));
+        <>
+          <ul className="shelf-list">
+            {items.map((it) => (
+              <li
+                key={it.id}
+                className={`shelf-item kind-${it.kind}`}
+                draggable={it.kind === "file"}
+                onDragStart={
+                  it.kind === "file"
+                    ? (e) => {
+                        e.dataTransfer.setData("text/plain", it.path!);
+                        e.dataTransfer.setData("text/uri-list", fileUrl(it.path!));
+                      }
+                    : undefined
+                }
+              >
+                <span className="shelf-file-icon">{it.kind === "file" ? "📄" : "📝"}</span>
+                <span
+                  className="shelf-file-name"
+                  title={it.kind === "file" ? it.path : it.text}
+                >
+                  {it.name}
+                </span>
+                <span className="shelf-item-actions">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void copyOne(it);
+                    }}
+                    title={it.kind === "file" ? "复制文件（粘贴到资源管理器）" : "复制文本"}
+                  >
+                    ⧉
+                  </button>
+                  {it.kind === "file" ? (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openPath(it.path!).catch(() => {});
+                        }}
+                        title="打开"
+                      >
+                        ↗
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void revealItemInDir(it.path!).catch(() => {});
+                        }}
+                        title="在资源管理器中定位"
+                      >
+                        📁
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      remove(it.id);
+                    }}
+                    title="移除"
+                  >
+                    ✕
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="shelf-bulk">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                void copyAll();
               }}
+              title="复制全部（文件可粘贴到资源管理器）"
             >
-              <span className="shelf-file-icon">📄</span>
-              <span className="shelf-file-name" title={it.path}>
-                {it.name}
-              </span>
-              <span className="shelf-item-actions">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void openPath(it.path).catch(() => {});
-                  }}
-                  title="打开"
-                >
-                  ↗
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void revealItemInDir(it.path).catch(() => {});
-                  }}
-                  title="在资源管理器中定位"
-                >
-                  📁
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remove(it.path);
-                  }}
-                  title="移除"
-                >
-                  ✕
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
+              全部复制
+            </button>
+            <button
+              className="shelf-clear"
+              onClick={(e) => {
+                e.stopPropagation();
+                clear();
+              }}
+              title="清空暂存架（不会删除原文件）"
+            >
+              清空
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

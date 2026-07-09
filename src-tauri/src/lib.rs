@@ -1,3 +1,4 @@
+mod clipboard;
 mod media;
 mod system;
 mod tray;
@@ -83,6 +84,9 @@ pub fn run() {
             volume::get_volume,
             volume::set_volume,
             volume::set_muted,
+            clipboard::clipboard_copy_files,
+            clipboard::clipboard_copy_text,
+            clipboard::clipboard_read,
         ])
         .setup(|app| {
             let win = app
