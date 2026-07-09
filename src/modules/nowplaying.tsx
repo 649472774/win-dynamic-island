@@ -226,6 +226,7 @@ function ProgressBar({ np }: { np: NowPlaying }) {
 
   return (
     <div className="np-progress">
+      <span className="np-time np-time-l">{fmt(pos)}</span>
       <div
         ref={barRef}
         className={`np-bar${seekable ? " seekable" : ""}${scrub != null ? " dragging" : ""}`}
@@ -242,10 +243,7 @@ function ProgressBar({ np }: { np: NowPlaying }) {
           <div className="np-bar-thumb" style={{ left: `${pct}%` }} />
         ) : null}
       </div>
-      <div className="np-times">
-        <span>{fmt(pos)}</span>
-        <span>{dur > 0 ? fmt(dur) : "--:--"}</span>
-      </div>
+      <span className="np-time np-time-r">{dur > 0 ? fmt(dur) : "--:--"}</span>
     </div>
   );
 }
@@ -302,6 +300,8 @@ function CollapsedNowPlaying(_: IslandModuleProps) {
           <i />
           <i />
           <i />
+          <i />
+          <i />
         </span>
       ) : null}
     </div>
@@ -339,11 +339,6 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
             <div className="np-artist" title={np.artist}>
               {np.artist || (np.hasSession ? "" : "打开任意播放器试试")}
             </div>
-            {np.album ? (
-              <div className="np-album" title={np.album}>
-                {np.album}
-              </div>
-            ) : null}
           </div>
 
           <div className="np-controls">

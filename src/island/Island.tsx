@@ -209,7 +209,7 @@ export default function Island() {
         transition={MORPH}
         onUpdate={reportRegion}
       >
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence initial={false}>
           {expanded ? (
             <motion.div
               key="expanded"

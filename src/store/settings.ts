@@ -19,20 +19,21 @@ import { listen } from "@tauri-apps/api/event";
 /**
  * How the system-info meters (CPU / memory / battery) are drawn.
  *   - "inline": one compact row per stat (icon · name · thin bar · value) — the
- *     densest, least prominent layout; the default.
+ *     densest, least prominent layout.
  *   - "bar":    three columns of small stacked bars.
- *   - "ring":   three small circular gauges with the value beside the ring.
+ *   - "ring" (default): three small circular gauges with the value beside the ring.
  */
 export type GaugeStyle = "inline" | "bar" | "ring";
 
-/** Cycle order used by the tile's corner toggle. */
+/** Order shown in the settings-panel segmented control. */
 export const GAUGE_ORDER: GaugeStyle[] = ["inline", "bar", "ring"];
 
-const DEFAULT_GAUGE: GaugeStyle = "inline";
+const DEFAULT_GAUGE: GaugeStyle = "ring";
 
 /** Backing file lives under the app config dir (e.g. %APPDATA%/<id>/). */
 const store = new LazyStore("settings.json");
-const K_GAUGE = "gaugeStyle";
+// Bumped to .v2 so the new "ring" default replaces any previously-saved value.
+const K_GAUGE = "gaugeStyle.v2";
 
 interface SettingsStore {
   /** Whether the initial async hydrate from disk has completed. */

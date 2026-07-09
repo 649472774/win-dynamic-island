@@ -7,18 +7,18 @@
  * events (~every 2 s); we keep a tiny store and answer the first paint from
  * `get_system_info`.
  *
- * The card supports three render styles (persisted in settings, cycled by the
- * corner toggle):
- *   - "inline" (default): one dense row per stat — icon · name · thin bar · value.
+ * The card supports three render styles (persisted in settings, chosen from the
+ * settings panel):
+ *   - "inline": one dense row per stat — icon · name · thin bar · value.
  *   - "bar":    three columns of small stacked bars.
- *   - "ring":   three small circular gauges with the value beside the ring.
+ *   - "ring" (default): three small circular gauges with the value beside the ring.
  */
 import { create } from "zustand";
-import type { MouseEvent, ReactElement } from "react";
+import type { ReactElement } from "react";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
 import { getSystemInfo, onSystemUpdate, type SystemInfo } from "../lib/native";
-import { useSettings, GAUGE_ORDER, type GaugeStyle } from "../store/settings";
+import { useSettings, type GaugeStyle } from "../store/settings";
 
 const EMPTY: SystemInfo = {
   hasBattery: false,
@@ -149,19 +149,18 @@ function batteryData(info: SystemInfo): StatData {
   return { icon, name, value: `${pct}%`, pct, warn: info.lowBattery };
 }
 
-/** Per-style metadata for the cycling corner toggle. */
-const STYLE_META: Record<GaugeStyle, { icon: string; name: string; Stat: (s: StatData) => ReactElement }> = {
-  inline: { icon: "≣", name: "单行", Stat: InlineStat },
-  bar: { icon: "▭", name: "条形", Stat: BarStat },
-  ring: { icon: "◍", name: "环形", Stat: RingStat },
+/** Maps each gauge style to its stat renderer. */
+const STAT_RENDERER: Record<GaugeStyle, (s: StatData) => ReactElement> = {
+  inline: InlineStat,
+  bar: BarStat,
+  ring: RingStat,
 };
 
 function SystemTile(_: IslandModuleProps) {
   const info = useSystem((s) => s.info);
   const gaugeStyle = useSettings((s) => s.gaugeStyle);
-  const cycleGaugeStyle = useSettings((s) => s.cycleGaugeStyle);
 
-  const { Stat } = STYLE_META[gaugeStyle];
+  const Stat = STAT_RENDERER[gaugeStyle];
 
   const memGb = (mb: number) => (mb / 1024).toFixed(1);
   const memSub =
@@ -184,25 +183,8 @@ function SystemTile(_: IslandModuleProps) {
     warn: info.cpuPercent >= 85,
   };
 
-  // Preview the *next* style in the tooltip so the toggle is discoverable.
-  const next = GAUGE_ORDER[(GAUGE_ORDER.indexOf(gaugeStyle) + 1) % GAUGE_ORDER.length];
-
-  const onToggle = (e: MouseEvent) => {
-    // Don't let the click bubble to the pill (which would collapse the panel).
-    e.stopPropagation();
-    cycleGaugeStyle();
-  };
-
   return (
     <div className={`sys-tile style-${gaugeStyle}`}>
-      <button
-        className="sys-toggle"
-        onClick={onToggle}
-        title={`显示样式：${STYLE_META[gaugeStyle].name}（点击切换为${STYLE_META[next].name}）`}
-        aria-label="切换系统信息显示样式"
-      >
-        {STYLE_META[gaugeStyle].icon}
-      </button>
       <Stat {...batteryData(info)} />
       <Stat {...cpuStat} />
       <Stat {...memStat} />
