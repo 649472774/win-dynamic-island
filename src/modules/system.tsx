@@ -6,13 +6,19 @@
  * expanded panel's module grid. A single Rust worker pushes `system-update`
  * events (~every 2 s); we keep a tiny store and answer the first paint from
  * `get_system_info`.
+ *
+ * The card supports three render styles (persisted in settings, cycled by the
+ * corner toggle):
+ *   - "inline" (default): one dense row per stat — icon · name · thin bar · value.
+ *   - "bar":    three columns of small stacked bars.
+ *   - "ring":   three small circular gauges with the value beside the ring.
  */
 import { create } from "zustand";
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactElement } from "react";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
 import { getSystemInfo, onSystemUpdate, type SystemInfo } from "../lib/native";
-import { useSettings } from "../store/settings";
+import { useSettings, GAUGE_ORDER, type GaugeStyle } from "../store/settings";
 
 const EMPTY: SystemInfo = {
   hasBattery: false,
@@ -50,24 +56,43 @@ ensureStarted();
 
 const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
-/** Horizontal fill via transform (avoids animating layout width). */
-const barStyle = (pct: number) => ({ transform: `scaleX(${clampPct(pct) / 100})` });
-
-/** Geometry for the circular gauge (SVG user units). */
-const RING_R = 24;
+/** Geometry for the small circular gauge (SVG user units, r=15 in a 38px box). */
+const RING_R = 15;
 const RING_C = 2 * Math.PI * RING_R;
 
 /** Common data for one stat, independent of how it's drawn. */
 interface StatData {
   icon: string;
-  label: string;
+  /** Short name, e.g. "电量" / "CPU" / "内存". */
+  name: string;
+  /** Primary readout, e.g. "85%". */
   value: string;
   pct: number;
+  /** Optional detail, e.g. "9.4/16.0G" (memory). */
+  sub?: string;
   warn?: boolean;
 }
 
-/** Bar variant: value on top, a thin fill bar, label underneath. */
-function BarStat({ icon, label, value, pct, warn }: StatData) {
+/** A — inline row: icon · name · thin fill bar · value · (optional detail). */
+function InlineStat({ icon, name, value, pct, sub, warn }: StatData) {
+  return (
+    <div className="sys-row">
+      <span className="sys-row-ic">{icon}</span>
+      <span className="sys-row-name">{name}</span>
+      <span className="sys-row-track">
+        <span
+          className={`sys-row-fill${warn ? " warn" : ""}`}
+          style={{ width: `${clampPct(pct)}%` }}
+        />
+      </span>
+      <span className={`sys-row-val${warn ? " warn" : ""}`}>{value}</span>
+      <span className="sys-row-sub">{sub || ""}</span>
+    </div>
+  );
+}
+
+/** B — column: value on top, a thin fill bar, a label underneath. */
+function BarStat({ icon, name, value, pct, sub, warn }: StatData) {
   return (
     <div className="sys-stat">
       <div className="sys-stat-head">
@@ -75,37 +100,39 @@ function BarStat({ icon, label, value, pct, warn }: StatData) {
         <span className="sys-stat-value">{value}</span>
       </div>
       <div className="sys-bar">
-        <div className={`sys-bar-fill${warn ? " warn" : ""}`} style={barStyle(pct)} />
+        <div
+          className={`sys-bar-fill${warn ? " warn" : ""}`}
+          style={{ transform: `scaleX(${clampPct(pct) / 100})` }}
+        />
       </div>
-      <div className={`sys-stat-label${warn ? " warn" : ""}`}>{label}</div>
+      <div className={`sys-stat-label${warn ? " warn" : ""}`}>{sub || name}</div>
     </div>
   );
 }
 
-/** Ring variant: a circular gauge with the icon + value in the centre. */
-function RingStat({ icon, label, value, pct, warn }: StatData) {
-  // Fill the arc by "unrolling" the dash from a full circumference. The circle is
-  // rotated -90° (in CSS) so 0% starts at 12 o'clock and grows clockwise.
+/** D — small ring with the icon inside and the value/label beside it. */
+function RingStat({ icon, name, value, pct, sub, warn }: StatData) {
+  // The circle is rotated -90° (CSS) so 0% starts at 12 o'clock, grows clockwise.
   const offset = RING_C * (1 - clampPct(pct) / 100);
   return (
     <div className="sys-stat sys-stat-ring">
       <div className="sys-ring-wrap">
-        <svg className="sys-ring" viewBox="0 0 56 56" aria-hidden="true">
-          <circle className="sys-ring-track" cx="28" cy="28" r={RING_R} />
+        <svg className="sys-ring" viewBox="0 0 38 38" aria-hidden="true">
+          <circle className="sys-ring-track" cx="19" cy="19" r={RING_R} />
           <circle
             className={`sys-ring-fill${warn ? " warn" : ""}`}
-            cx="28"
-            cy="28"
+            cx="19"
+            cy="19"
             r={RING_R}
             style={{ strokeDasharray: RING_C, strokeDashoffset: offset }}
           />
         </svg>
-        <div className="sys-ring-center">
-          <span className="sys-ring-icon">{icon}</span>
-          <span className={`sys-ring-value${warn ? " warn" : ""}`}>{value}</span>
-        </div>
+        <span className="sys-ring-icon">{icon}</span>
       </div>
-      <div className={`sys-stat-label${warn ? " warn" : ""}`}>{label}</div>
+      <div className="sys-ring-text">
+        <span className={`sys-ring-value${warn ? " warn" : ""}`}>{value}</span>
+        <span className="sys-ring-label">{sub || name}</span>
+      </div>
     </div>
   );
 }
@@ -114,60 +141,70 @@ function RingStat({ icon, label, value, pct, warn }: StatData) {
 function batteryData(info: SystemInfo): StatData {
   if (!info.hasBattery) {
     // Desktop / no battery: show a full "on mains" gauge.
-    return { icon: "🔌", label: "电源", value: "交流电", pct: 100 };
+    return { icon: "🔌", name: "电源", value: "交流电", pct: 100 };
   }
   const pct = info.batteryPercent < 0 ? 0 : info.batteryPercent;
   const icon = info.charging ? "⚡" : info.lowBattery ? "🪫" : "🔋";
-  const label = info.charging ? "充电中" : info.lowBattery ? "低电量" : "电量";
-  return { icon, label, value: `${pct}%`, pct, warn: info.lowBattery };
+  const name = info.charging ? "充电中" : info.lowBattery ? "低电量" : "电量";
+  return { icon, name, value: `${pct}%`, pct, warn: info.lowBattery };
 }
+
+/** Per-style metadata for the cycling corner toggle. */
+const STYLE_META: Record<GaugeStyle, { icon: string; name: string; Stat: (s: StatData) => ReactElement }> = {
+  inline: { icon: "≣", name: "单行", Stat: InlineStat },
+  bar: { icon: "▭", name: "条形", Stat: BarStat },
+  ring: { icon: "◍", name: "环形", Stat: RingStat },
+};
 
 function SystemTile(_: IslandModuleProps) {
   const info = useSystem((s) => s.info);
   const gaugeStyle = useSettings((s) => s.gaugeStyle);
-  const toggleGaugeStyle = useSettings((s) => s.toggleGaugeStyle);
+  const cycleGaugeStyle = useSettings((s) => s.cycleGaugeStyle);
 
-  const Stat = gaugeStyle === "ring" ? RingStat : BarStat;
-  const ring = gaugeStyle === "ring";
+  const { Stat } = STYLE_META[gaugeStyle];
 
   const memGb = (mb: number) => (mb / 1024).toFixed(1);
-  const memValue =
-    info.memTotalMb > 0 ? `${memGb(info.memUsedMb)}/${memGb(info.memTotalMb)}G` : "—";
+  const memSub =
+    info.memTotalMb > 0 ? `${memGb(info.memUsedMb)}/${memGb(info.memTotalMb)}G` : undefined;
 
-  // In both modes the value is the percentage; the used/total sits under the
-  // bar (bar mode) or beneath the ring as the label (ring mode).
   const memStat: StatData = {
     icon: "💾",
+    name: "内存",
     value: `${clampPct(info.memPercent)}%`,
-    label: memValue,
     pct: info.memPercent,
+    sub: memSub,
     warn: info.memPercent >= 90,
   };
+
+  const cpuStat: StatData = {
+    icon: "🖥",
+    name: "CPU",
+    value: `${clampPct(info.cpuPercent)}%`,
+    pct: info.cpuPercent,
+    warn: info.cpuPercent >= 85,
+  };
+
+  // Preview the *next* style in the tooltip so the toggle is discoverable.
+  const next = GAUGE_ORDER[(GAUGE_ORDER.indexOf(gaugeStyle) + 1) % GAUGE_ORDER.length];
 
   const onToggle = (e: MouseEvent) => {
     // Don't let the click bubble to the pill (which would collapse the panel).
     e.stopPropagation();
-    toggleGaugeStyle();
+    cycleGaugeStyle();
   };
 
   return (
-    <div className={`sys-tile${ring ? " ring" : ""}`}>
+    <div className={`sys-tile style-${gaugeStyle}`}>
       <button
         className="sys-toggle"
         onClick={onToggle}
-        title={ring ? "切换为条形" : "切换为环形"}
-        aria-label="切换占用条样式"
+        title={`显示样式：${STYLE_META[gaugeStyle].name}（点击切换为${STYLE_META[next].name}）`}
+        aria-label="切换系统信息显示样式"
       >
-        {ring ? "▭" : "◍"}
+        {STYLE_META[gaugeStyle].icon}
       </button>
       <Stat {...batteryData(info)} />
-      <Stat
-        icon="🖥"
-        label="CPU"
-        value={`${clampPct(info.cpuPercent)}%`}
-        pct={info.cpuPercent}
-        warn={info.cpuPercent >= 85}
-      />
+      <Stat {...cpuStat} />
       <Stat {...memStat} />
     </div>
   );

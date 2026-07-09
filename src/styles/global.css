@@ -436,11 +436,94 @@ body,
   grid-column: 1 / -1;
   position: relative;
   display: flex;
-  gap: 10px;
   padding: 10px 12px;
+  padding-right: 32px; /* reserve a gutter for the corner toggle */
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* B (bar) and D (ring) lay their three stats out in a row. */
+.sys-tile.style-bar,
+.sys-tile.style-ring {
+  flex-direction: row;
+  gap: 10px;
+}
+
+.sys-tile.style-ring {
+  gap: 8px;
+}
+
+/* A (inline) stacks one dense row per stat. */
+.sys-tile.style-inline {
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A — inline row: icon · name · thin bar · value · (detail). */
+.sys-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sys-row-ic {
+  flex: none;
+  width: 16px;
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+}
+
+.sys-row-name {
+  flex: none;
+  width: 34px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sys-row-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.sys-row-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.35s ease;
+}
+
+.sys-row-fill.warn {
+  background: #ff5f57;
+}
+
+.sys-row-val {
+  flex: none;
+  width: 42px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-row-val.warn {
+  color: #ff8a84;
+}
+
+.sys-row-sub {
+  flex: none;
+  width: 74px;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .sys-stat {
@@ -505,40 +588,37 @@ body,
   color: #ff8a84;
 }
 
-/* Ring gauge variant (toggle in the tile corner switches bar ↔ ring). */
-.sys-tile.ring {
-  gap: 6px;
-}
-
+/* D — small ring gauge with the icon inside and value/label beside it. */
 .sys-stat-ring {
+  flex-direction: row;
   align-items: center;
-  text-align: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .sys-ring-wrap {
   position: relative;
-  width: 56px;
-  height: 56px;
+  flex: none;
+  width: 38px;
+  height: 38px;
 }
 
 .sys-ring {
   display: block;
-  width: 56px;
-  height: 56px;
+  width: 38px;
+  height: 38px;
   transform: rotate(-90deg); /* start the arc at 12 o'clock, grow clockwise */
 }
 
 .sys-ring-track {
   fill: none;
   stroke: rgba(255, 255, 255, 0.12);
-  stroke-width: 5;
+  stroke-width: 4;
 }
 
 .sys-ring-fill {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 5;
+  stroke-width: 4;
   stroke-linecap: round;
   transition: stroke-dashoffset 0.35s ease;
 }
@@ -547,23 +627,25 @@ body,
   stroke: #ff5f57;
 }
 
-.sys-ring-center {
+.sys-ring-icon {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-}
-
-.sys-ring-icon {
   font-size: 13px;
   line-height: 1;
 }
 
+.sys-ring-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .sys-ring-value {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -571,6 +653,14 @@ body,
 
 .sys-ring-value.warn {
   color: #ff8a84;
+}
+
+.sys-ring-label {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Compact corner control that switches the gauge style. */
