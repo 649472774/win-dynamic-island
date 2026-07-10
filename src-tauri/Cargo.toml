@@ -34,6 +34,7 @@ windows-future = "0.3"
 # it to implement the `IAudioEndpointVolumeCallback` COM interface for
 # event-driven (zero idle cost) volume-change notifications.
 windows-core = "0.62"
+windows-numerics = "0.3"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",
@@ -59,16 +60,26 @@ windows = { version = "0.62.2", features = [
   "Win32_System_Power",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  # M5A: public WinRT Composition host-backdrop probe / implementation.
+  "Win32_System_WinRT",
+  "Win32_System_WinRT_Composition",
+  "Win32_System_WinRT_Graphics_Direct2D",
   # M3: volume HUD (WASAPI endpoint volume + change callback)
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
   "Foundation",
+  "Foundation_Numerics",
+  "Graphics_Effects",
   "Media_Control",
   "Storage_Streams",
+  "System",
+  "UI",
+  "UI_Composition",
+  "UI_Composition_Desktop",
+  "UI_ViewManagement",
 ] }
 tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
-

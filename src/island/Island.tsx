@@ -42,6 +42,10 @@ export default function Island() {
   const openSettings = useIsland((s) => s.openSettings);
   const hud = useIsland((s) => s.hud);
   const dragActive = useIsland((s) => s.dragActive);
+  const glassStatus = useSettings((s) => s.glassStatus);
+  const glassActive = glassStatus.active;
+  const glassFallback = glassStatus.requested && !glassStatus.active;
+  const glassIntensity = useSettings((s) => s.glassIntensity);
   // Re-evaluate the active module set when a module's activeness flips (e.g.
   // music starts/stops) even if the island state itself hasn't changed.
   useModulesVersion((s) => s.v);
@@ -108,7 +112,10 @@ export default function Island() {
       .then(() => {
         if (!revealed.current) {
           revealed.current = true;
-          void revealIsland();
+          void revealIsland().catch((error) => {
+            revealed.current = false;
+            console.error("Failed to reveal the island window", error);
+          });
         }
       })
       .catch(() => {});
@@ -197,7 +204,9 @@ export default function Island() {
   };
 
   return (
-    <div className="island-root">
+    <div
+      className={`island-root${glassActive ? ` native-glass-active native-glass-${glassIntensity}` : ""}${glassFallback ? " native-glass-fallback" : ""}`}
+    >
       <motion.div
         ref={pillRef}
         className={`island-pill state-${state}`}

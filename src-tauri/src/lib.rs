@@ -1,5 +1,6 @@
 mod clipboard;
 mod dragdrop;
+mod glass;
 mod media;
 mod system;
 mod tray;
@@ -35,6 +36,9 @@ fn spawn_monitor_watcher(app: &tauri::AppHandle) {
             // `ensure_region` only re-applies when the live region no longer
             // matches, so this self-heals without ever disturbing a live morph.
             window::ensure_region(&win);
+            // Re-evaluate Windows transparency/high-contrast policy and heal
+            // the native underlay after display/session changes.
+            glass::reconcile(&win);
             // Safety net for staying on top: the foreground WinEvent hook handles
             // the common case (another app coming forward) instantly, but some
             // windows appear topmost without a foreground event. Re-asserting here
@@ -75,6 +79,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(RegionState::default())
+        .manage(glass::GlassState::default())
         .invoke_handler(tauri::generate_handler![
             window::set_island_region,
             window::recenter,
@@ -92,8 +97,11 @@ pub fn run() {
             clipboard::clipboard_copy_text,
             clipboard::clipboard_read,
             dragdrop::rearm_drop_target,
+            glass::get_glass_status,
+            glass::set_glass_enabled,
         ])
         .setup(|app| {
+            glass::register_main_thread();
             let win = app
                 .get_webview_window("main")
                 .expect("main window must exist");
@@ -103,7 +111,7 @@ pub fn run() {
             // NOTE: We deliberately do *not* apply a full-window Acrylic/blur
             // backdrop here. On Windows 11 the accent-acrylic DWM backdrop is
             // composited across the entire window frame and ignores the pill
-            // `SetWindowRgn` clip, so it would paint the whole 760x480 window as
+            // `SetWindowRgn` clip, so it would paint the whole 760x900 window as
             // an opaque grey block over the desktop (the region only clips
             // hit-testing, not the DWM backdrop). The pill instead renders as a
             // self-contained translucent glass capsule in CSS, keeping the rest
@@ -122,6 +130,13 @@ pub fn run() {
             // our own IDropTarget here on the main/UI thread. This is what makes
             // "drag a file onto the island" actually work.
             dragdrop::install(app.handle());
+
+            let glass_app = app.handle().clone();
+            win.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    glass::shutdown(&glass_app);
+                }
+            });
 
             // Start the Now Playing (SMTC) worker and expose its state.
             let media_state = media::init(app.handle());

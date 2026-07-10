@@ -164,6 +164,7 @@ pub fn raise_topmost<R: Runtime>(window: &WebviewWindow<R>) {
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
+            crate::glass::pair_under_main_raw(hwnd);
         }
     }
     #[cfg(not(windows))]
@@ -203,6 +204,7 @@ unsafe extern "system" fn foreground_event_proc(
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         );
+        crate::glass::pair_under_main_raw(HWND(raw as _));
     }
 }
 
@@ -258,6 +260,8 @@ pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
     if let Some(state) = window.try_state::<RegionState>() {
         *state.last.lock().unwrap() = Some(r);
     }
+    crate::dragdrop::sync_region(window, r);
+    crate::glass::sync_region(window, r);
 }
 /// Re-assert the pill region if Windows has silently dropped or changed it.
 ///
@@ -342,6 +346,7 @@ pub fn center_top<R: Runtime>(window: &WebviewWindow<R>) {
     let y = m_pos.y + (TOP_MARGIN * scale).round() as i32;
 
     let _ = window.set_position(PhysicalPosition::new(x, y));
+    crate::glass::sync_window(window);
 }
 
 // ---------------------------------------------------------------------------
@@ -376,10 +381,13 @@ pub fn recenter<R: Runtime>(window: WebviewWindow<R>) {
 /// WebView has painted) makes `WS_EX_NOACTIVATE` (don't steal focus) and
 /// `WS_EX_TOOLWINDOW` (stay out of Alt-Tab / taskbar) stick reliably.
 #[tauri::command]
-pub fn reveal_island<R: Runtime>(window: WebviewWindow<R>) {
+pub fn reveal_island<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
     make_tool_window(&window);
     center_top(&window);
-    let _ = window.show();
+    window
+        .show()
+        .map_err(|error| format!("显示灵动岛主窗口失败：{error}"))?;
+    crate::glass::reveal(&window);
     // Assert topmost right after showing so nothing that was created while we
     // were hidden ends up above us.
     raise_topmost(&window);
@@ -387,6 +395,7 @@ pub fn reveal_island<R: Runtime>(window: WebviewWindow<R>) {
     // after the window becomes visible (which would flash the full grey box).
     ensure_region(&window);
     spawn_region_settle(&window);
+    Ok(())
 }
 
 /// Helper used by `RECT`-based comparisons in tests / future hit logic.

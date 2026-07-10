@@ -63,12 +63,61 @@ body,
   -webkit-backdrop-filter: blur(14px) saturate(150%);
   backdrop-filter: blur(14px) saturate(150%);
   will-change: width, height, border-radius;
+  isolation: isolate;
 }
 
 .island-pill.state-expanded {
   background: var(--glass-bg-strong);
   align-items: flex-start;
   justify-content: flex-start;
+}
+
+/* M5A native HostBackdrop lives in a separate Win32 underlay. Once it is
+   genuinely active, keep the WebView layer translucent enough to reveal it and
+   disable the ineffective in-WebView backdrop filter. */
+.island-root.native-glass-active {
+  --glass-bg: rgba(8, 10, 16, 0.18);
+  --glass-bg-strong: rgba(8, 10, 16, 0.34);
+}
+
+.island-root.native-glass-subtle {
+  --glass-bg: rgba(8, 10, 16, 0.26);
+  --glass-bg-strong: rgba(8, 10, 16, 0.42);
+}
+
+.island-root.native-glass-vivid {
+  --glass-bg: rgba(8, 10, 16, 0.1);
+  --glass-bg-strong: rgba(8, 10, 16, 0.24);
+}
+
+.island-root.native-glass-fallback {
+  --glass-bg: rgb(16, 18, 24);
+  --glass-bg-strong: rgb(12, 14, 20);
+}
+
+.island-root.native-glass-fallback .island-pill {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.island-root.native-glass-active .island-pill {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.island-root.native-glass-active .island-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.65'/%3E%3C/svg%3E");
+}
+
+.island-root.native-glass-active .pill-content {
+  z-index: 1;
 }
 
 .pill-content {
@@ -944,6 +993,10 @@ body,
   color: var(--text-faint);
 }
 
+.settings-desc.degraded {
+  color: #f2b84b;
+}
+
 /* Segmented control (gauge style picker). */
 .seg {
   display: inline-flex;
@@ -978,6 +1031,11 @@ body,
   color: #06121f;
 }
 
+.seg-item:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 /* Toggle switch (autostart). */
 .switch {
   appearance: none;
@@ -994,6 +1052,15 @@ body,
 
 .switch.on {
   background: var(--accent);
+}
+
+.switch.degraded {
+  box-shadow: 0 0 0 1px rgba(242, 184, 75, 0.65);
+}
+
+.switch:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .switch-knob {
@@ -1380,4 +1447,3 @@ body,
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.35);
 }
-

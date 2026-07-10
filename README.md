@@ -6,19 +6,18 @@
 Rust 负责所有 Windows 原生能力（窗口定位、置顶、毛玻璃、区域裁剪、非激活点击），
 前端用 **React + Vite + TypeScript + Motion + Zustand** 负责渲染与形变动画。
 
-> 当前进度：**M1–M4 全部完成**（透明置顶胶囊 + 三态形变、Now Playing / SMTC、
-> 音量 HUD + 电量 / 系统信息、文件暂存架 + 托盘 + 设置持久化 + 开机自启）。详见文末路线图。
+> 当前进度：**M1–M4 全部完成**；**M5A Windows 原生真实毛玻璃技术预览已完成**。
+> M5B Liquid Glass 外观增强与可选 M5C 真实折射尚未开始。详见文末路线图。
 
 ---
 
 ## ✨ 已实现（M1）
 
 - **无边框 / 透明背景 / 始终置顶** 的悬浮窗，固定在**主显示器顶部水平居中**。
-- **深色玻璃胶囊**：胶囊为**自包含的深色半透明玻璃质感**（CSS 深色底 + 细描边 + 阴影 + 内高光），
-  桌面仍会透过胶囊淡淡显现，圆角 ≥ 22px。
-  > 说明：刻意**不**使用整窗 Acrylic/毛玻璃。Win11 上系统 Acrylic 由 DWM 在**整块窗口**上合成，
-  > **无法**被胶囊的 `SetWindowRgn` 裁剪，会把整块 760×480 窗口糊成一坨灰色挡住桌面。因此改由
-  > 胶囊自身呈现玻璃感，整窗其余部分保持全透明且可穿透（详见「关键设计」与「已知取舍」）。
+- **安全玻璃回退**：默认使用自包含的 CSS 深色半透明材质（深色底 + 细描边 + 阴影 + 内高光），
+  圆角 ≥ 22px；M5A 可在设置中启用独立原生 underlay，获得真实桌面实时模糊。
+  > 说明：仍然**不**对固定大主窗口应用整窗 Acrylic。该旧做法不受 `SetWindowRgn` 可靠裁剪，会把
+  > 760×900 窗口糊成灰块挡住桌面。M5A 只在独立 underlay 的当前胶囊区域内绘制玻璃。
 - **三态状态机 + 形变动画**（Motion spring，200–350ms，60fps）：
   1. **Collapsed** —— 细长胶囊，仅显示极简信息（当前为时钟占位模块）。
   2. **Hover** —— 悬停时轻微放大，显示预览信息。
@@ -53,7 +52,7 @@ Rust 负责所有 Windows 原生能力（窗口定位、置顶、毛玻璃、区
 
 | 依赖 | 版本 / 说明 |
 | --- | --- |
-| Windows | 11（Acrylic 效果最佳；Windows 10 1809+ 亦可，视觉略有差异） |
+| Windows | 11（M5A 原生 HostBackdrop）；不可用或系统禁用透明效果时自动回退 CSS |
 | Node.js | ≥ 18（开发用 v24 验证通过） |
 | Rust | 稳定版 + **MSVC** 工具链（`x86_64-pc-windows-msvc`） |
 | WebView2 | Windows 11 已内置；如缺失请安装 Evergreen Runtime |
@@ -110,9 +109,10 @@ npm run tauri build
    一旦拖动进入窗口区域，灵动岛会**自动展开**成大面板并显示「📎 松开鼠标放入暂存架」蒙层，**松手**即暂存。
    > 原理：应用在 Rust 侧注册了**原生 OLE 拖放目标**（`IDropTarget`）——这是必须自己实现的原因：
    > wry 内置的拖放事件在**透明（分层）窗口**上不会触发。系统拖放命中用 `WindowFromPoint`，它**会**
-   > 受我们的圆角裁剪（`SetWindowRgn`）影响，所以只注册胶囊本身时落点仅为那颗小胶囊、很难命中；
-   > 为此另挂一个**顶部横条隐形窗口**（岛宽 × 约 220px，透明、点击穿透、不被区域裁剪）承载同一个拖放目标，
-   > 把落点放大成**整条顶部区域**，既好接、又不影响点击/悬停穿透到胶囊。
+   > 受圆角裁剪（`SetWindowRgn`）影响。应用另挂一个承载相同目标的**隐形异形 catcher**，其真实 HWND Region
+   > 与当前胶囊逐帧同步并紧贴主窗后方：胶囊外完全不参与鼠标命中，胶囊内普通指针直接到 WebView；
+   > OLE 目标则同时注册在主窗、子窗和 catcher 上。
+   > 请把文件拖到**可见胶囊**上；进入后岛会自动展开，后续落点也随面板一起扩大。
 2. **备用添加**：展开面板 → 暂存架卡片右上角 **＋**（打开文件对话框）或 **📋**（从剪贴板添加文件/文本）。
 3. **取回 · 复制到资源管理器（可靠路径）**：点某项的 **⧉** 或底部「全部复制」——文件会以 `CF_HDROP`
    放入剪贴板，到**任意文件夹里 Ctrl+V** 即完成一次**真实的文件复制**（这是 Windows 上等价于 Yoink「拖出」的可靠做法）。
@@ -122,12 +122,35 @@ npm run tauri build
 6. **文本片段**：📋 添加的文本以 📝 行显示，**⧉** 复制文本、**✕** 移除。
 7. **持久化**：暂存内容写入 `shelf.json`，**重启后仍在**，直到你移除 / 清空。
 8. **托盘 & 设置**：托盘图标右键有「设置 / 开机自启 / 退出」；**右键胶囊**打开应用内设置面板
-   （浏览器默认右键菜单已屏蔽）；设置项（系统信息样式 / 开机自启）持久化到 `settings.json`，重启保留。
+   （浏览器默认右键菜单已屏蔽）；设置项（系统信息样式 / 毛玻璃开关与强度 / 开机自启）重启保留。
 
-> **已知边界**：① 「拖入」由原生 `IDropTarget` + 顶部横条接住窗口接管，落点为顶部居中一整条；个别来源（受 DRM 保护的项、
+> **已知边界**：① 「拖入」由原生 `IDropTarget` + 与岛同形的隐形 catcher 接管，初始落点为可见胶囊；个别来源（受 DRM 保护的项、
 > 非 `CF_HDROP` 的虚拟文件）可能无法解析路径，此时用 ＋ / 📋 作为可靠入口；
 > ② 「拖出」到资源管理器为尽力而为，可靠替代 = 复制（CF_HDROP）后粘贴；
 > ③ 开发态开机自启注册表指向 dev 目标 exe，打包后自动为正式路径。
+
+---
+
+## 🪟 M5A · Windows 原生真实毛玻璃（技术预览）
+
+- 使用公开的 `Windows.UI.Composition`、`DesktopWindowTarget` 与 `CreateHostBackdropBrush`，
+  在独立 `DI_GlassUnderlay` Win32 窗口中实时采样岛后方桌面；额外叠加轻量 Gaussian blur 与深色 tint。
+- underlay 始终位于 Tauri 主窗正下方，使用 tool-window / no-activate / click-through，
+  不进任务栏、不抢焦点；其位置、尺寸、圆角和真实 HWND Region 与主岛逐帧同步。
+- underlay 与 OLE catcher 都按当前胶囊执行 `SetWindowRgn`，胶囊外不会形成透明点击或拖放死区。
+- 设置提供**淡雅 / 平衡 / 明显**三档真实原生强度，技术预览默认关闭、默认强度为**平衡**，写入
+  `settings.json`；无需重启即可切换。
+- 遵循 Windows「透明效果」与高对比度策略：策略关闭、API 初始化失败或资源异常时，明确显示降级原因并
+  切换为不透底的深色安全材质；后台会尝试恢复瞬态资源错误。
+- M5A 不捕获屏幕、不把桌面像素传给 JavaScript，也不使用私有 DWM 属性；M5B/M5C 尚未包含。
+
+### 🔍 如何测试 M5A
+
+1. 右键灵动岛打开设置，开启「真实毛玻璃」；把文字密集网页或视频移到岛后方，确认背景随滚动/播放实时变化。
+2. 依次切换「淡雅 / 平衡 / 明显」，确认三档透出强度即时变化；重启应用后设置仍保留。
+3. 验证收起 / 悬停 / 展开 / 音量 HUD / 设置页，玻璃边缘与圆角始终贴合，岛外桌面仍可点击。
+4. 从资源管理器把文件直接拖到可见胶囊，确认岛自动展开并可落入暂存架。
+5. 在 Windows 设置中关闭「透明效果」，确认设置页显示回退原因且岛变为深色实底；恢复后原生玻璃自动回来。
 
 ---
 
@@ -158,8 +181,9 @@ dynamic-island/
    │  ├─ media.rs            # M2：SMTC 工作线程 + Now Playing 读取与控制命令
    │  ├─ system.rs           # M3：电量/CPU/内存低频事件推送
    │  ├─ volume.rs           # M3：WASAPI 音量事件回调 + 读写/静音
-   │  └─ clipboard.rs        # M4：剪贴板 CF_HDROP 文件复制 / CF_UNICODETEXT 文本 / 读取
-   │  └─ dragdrop.rs         # M4f：原生 OLE 拖放目标（IDropTarget），让透明窗口也能接住文件拖入
+   │  ├─ clipboard.rs        # M4：剪贴板 CF_HDROP 文件复制 / CF_UNICODETEXT 文本 / 读取
+   │  ├─ dragdrop.rs         # M4f：原生 OLE 拖放目标（IDropTarget）与同形隐形 catcher
+   │  └─ glass.rs            # M5A：HostBackdrop Composition underlay、策略回退与生命周期
    ├─ tauri.conf.json        # 窗口配置（760×900、透明、无边框、置顶、隐藏待定位）
    └─ Cargo.toml
 ```
@@ -188,9 +212,15 @@ M4（暂存架取回）新增：
   拖动进入即 `emit("shelf-drag-enter")`、放下时解析 `CF_HDROP` 路径并 `emit("shelf-drop", paths)`、
   离开 `emit("shelf-drag-leave")`；前端 `useShelfDrag()` 监听这三个事件驱动 `dragActive` 与入架
   （详见 `modules/shelf.tsx`）。**之所以自实现**：wry 内置的 `onDragDropEvent` 在透明（分层）窗口上不触发。
-  又因 OLE 命中判定（`WindowFromPoint`）**会**被 `SetWindowRgn` 裁剪到胶囊，另建一个**隐形顶部横条窗口**
-  （`ensure_catcher`：`WS_EX_LAYERED` alpha=1 + `WM_NCHITTEST→HTTRANSPARENT` 点击穿透、不裁剪区域）承载同一拖放目标，
-  把落点扩成整条顶部区域；随显示器切换由 `reposition()` 跟随对齐。
+  又因 OLE 命中判定（`WindowFromPoint`）**会**受 `SetWindowRgn` 影响，另建一个**同形隐形 catcher**
+  （`ensure_catcher`：`WS_EX_LAYERED` alpha=1 + `WM_NCHITTEST→HTTRANSPARENT`）承载同一拖放目标；
+  catcher 的真实 Region 由 `sync_region()` 与可见胶囊逐帧同步，随显示器切换由 `reposition()` 跟随对齐。
+
+M5A（原生毛玻璃）新增：
+
+- `set_glass_enabled(enabled, intensity)` / `get_glass_status()` —— 启停原生 underlay、设置三档强度并读取实际状态。
+- 事件 `glass-status-changed` —— 推送 active / fallback、renderer、降级原因与当前强度；前端仅在
+  `active=true` 时降低 WebView 覆盖层透明度，否则使用安全回退。
 
 ### 模块系统
 
@@ -201,12 +231,14 @@ M4（暂存架取回）新增：
 
 ## 🔑 关键设计说明
 
-- **固定大窗 + 区域裁剪**：原生窗口固定为 760×480 透明画布**永不 resize**；用
+- **固定大窗 + 区域裁剪**：原生窗口固定为 760×900 透明画布**永不 resize**；用
   `CreateRoundRectRgn` + `SetWindowRgn` 动态裁剪出与当前胶囊/面板一致的圆角矩形区域。
   这一招同时解决三件事：① 区域外像素自动**穿透**到下层窗口；② 区域内保留原生 DOM 悬停/点击；
   ③ WebView 视口稳定，形变动画顺滑 60fps。
   > 注意：`SetWindowRgn` 只裁剪**命中测试与 GDI 绘制**，**不**裁剪 DWM 的 Acrylic 背景合成——
   > 这正是我们不使用整窗 Acrylic 的原因（否则整窗灰块盖住桌面）。
+- **独立玻璃 underlay**：M5A 不碰 WebView2 内部 Composition 树，而是建立无激活、全点击穿透的配对
+  HWND，只在同步后的胶囊 Region 内绘制 HostBackdrop；Z-order 始终夹在主岛与其它应用之间。
 - **不抢焦点又能点击（核心难点）**：仅设 `WS_EX_NOACTIVATE` 会导致——当本进程非前台时，
   Windows 把点击当成「激活尝试」吞掉，WebView 收不到 DOM click。解决方案是**子类化窗口过程**，
   对 `WM_MOUSEACTIVATE` 返回 `MA_NOACTIVATE`：告诉系统「别激活我，但请照常投递鼠标消息」。
@@ -224,9 +256,8 @@ M4（暂存架取回）新增：
 - 圆角区域裁剪由 GDI 实现，边缘为硬裁剪、无抗锯齿，放大观察圆角可能有轻微锯齿；
   视觉上叠加了内层 CSS 圆角以缓解。
 - 逐区域穿透依赖窗口区域裁剪 + 前端悬停，鼠标极快掠过时理论上有毫秒级延迟，实测无感。
-- **暂无「桌面实时模糊」**：出于上面的原因，胶囊背后不做系统级 Acrylic 实时模糊（改用深色半透明玻璃）。
-  若确实需要真·桌面模糊，可后续将原生窗口尺寸**随胶囊逐帧变化**（窗口即胶囊），代价是形变时可能出现
-  WebView2 重排闪烁——与当前「固定大窗永不 resize」的顺滑取舍相反，将作为可选项在后续里程碑评估。
+- M5A 原生效果依赖 Windows 11 的公开 Composition HostBackdrop 与系统透明策略；不满足时自动使用深色实底。
+- M5A 只做真实背景采样与模糊，不会让背景线条发生几何弯曲；Liquid Glass 高光属于 M5B，真实折射仅为可选 M5C。
 - 首次 `cargo build` 需拉取并编译 Rust 依赖，耗时较长，属正常现象（后续增量编译约 10s）。
 
 ---
@@ -239,6 +270,9 @@ M4（暂存架取回）新增：
 | **M2** | Now Playing（SMTC：歌名/歌手/封面/进度 + 上一首/播放暂停/下一首） | ✅ 已完成 |
 | **M3** | 音量 HUD（音量变化短暂展开滑条自动收起）+ 电量/CPU/内存 | ✅ 已完成 |
 | **M4** | 文件暂存架 Shelf（Yoink 式拖入自动展开）+ 托盘菜单 + 设置持久化 + 开机自启 + 右键设置 | ✅ 已完成 |
+| **M5A** | 独立 Windows Composition underlay + HostBackdrop 真实毛玻璃 + 三档强度与安全回退 | ✅ 已完成（技术预览） |
+| **M5B** | Liquid Glass 动态高光、内反射与边缘质感 | ⏸ 未开始 |
+| **M5C** | D3D11/HLSL 真实背景折射 | ⏸ 可选实验阶段 |
 
 ---
 

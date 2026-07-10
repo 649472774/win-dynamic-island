@@ -33,6 +33,40 @@ export function recenter(): Promise<void> {
   return invoke("recenter");
 }
 
+/* ----------------------- Native glass underlay (M5A) ----------------------- */
+
+export type GlassIntensity = "subtle" | "balanced" | "vivid";
+
+export interface GlassStatus {
+  /** Desired setting, even when Windows policy forces a CSS fallback. */
+  requested: boolean;
+  /** True only while the native HostBackdrop underlay is actually visible. */
+  active: boolean;
+  /** Whether the public Windows Composition path initialized successfully. */
+  supported: boolean;
+  /** "windows-host-backdrop" while active, otherwise "css". */
+  renderer: string;
+  fallbackReason: string | null;
+  intensity: GlassIntensity;
+}
+
+export function getGlassStatus(): Promise<GlassStatus> {
+  return invoke("get_glass_status");
+}
+
+export function setGlassEnabled(
+  enabled: boolean,
+  intensity: GlassIntensity,
+): Promise<GlassStatus> {
+  return invoke("set_glass_enabled", { enabled, intensity });
+}
+
+export function onGlassStatusChanged(
+  cb: (status: GlassStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<GlassStatus>("glass-status-changed", (event) => cb(event.payload));
+}
+
 /* --------------------------- Now Playing (M2) --------------------------- */
 
 /** Media snapshot pushed from Rust (mirrors the `NowPlaying` struct). */

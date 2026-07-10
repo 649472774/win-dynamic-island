@@ -6,7 +6,13 @@
  * island module, since it configures the shell itself.
  */
 import { useIsland } from "../store/island";
-import { GAUGE_ORDER, useSettings, type GaugeStyle } from "../store/settings";
+import {
+  GAUGE_ORDER,
+  GLASS_INTENSITY_ORDER,
+  useSettings,
+  type GaugeStyle,
+  type GlassIntensity,
+} from "../store/settings";
 
 const GAUGE_LABEL: Record<GaugeStyle, string> = {
   inline: "单行",
@@ -14,12 +20,36 @@ const GAUGE_LABEL: Record<GaugeStyle, string> = {
   ring: "环形",
 };
 
+const GLASS_INTENSITY_LABEL: Record<GlassIntensity, string> = {
+  subtle: "淡雅",
+  balanced: "平衡",
+  vivid: "明显",
+};
+
 export default function SettingsPanel() {
   const closeSettings = useIsland((s) => s.closeSettings);
+  const loaded = useSettings((s) => s.loaded);
   const gaugeStyle = useSettings((s) => s.gaugeStyle);
   const setGaugeStyle = useSettings((s) => s.setGaugeStyle);
   const autostart = useSettings((s) => s.autostart);
   const setAutostart = useSettings((s) => s.setAutostart);
+  const glassEnabled = useSettings((s) => s.glassEnabled);
+  const glassIntensity = useSettings((s) => s.glassIntensity);
+  const glassStatus = useSettings((s) => s.glassStatus);
+  const glassPending = useSettings((s) => s.glassPending);
+  const setGlassEnabled = useSettings((s) => s.setGlassEnabled);
+  const setGlassIntensity = useSettings((s) => s.setGlassIntensity);
+  const glassBusy = !loaded || glassPending;
+
+  const glassDescription = !loaded
+    ? "正在读取本地设置"
+    : glassPending
+      ? "正在切换 Windows 原生合成器"
+      : glassStatus.active
+        ? "已启用 · 桌面背景实时模糊"
+        : glassEnabled && glassStatus.fallbackReason
+          ? `已回退 · ${glassStatus.fallbackReason}`
+          : "Windows 11 真实毛玻璃（技术预览）";
 
   return (
     <div className="settings-panel">
@@ -54,6 +84,47 @@ export default function SettingsPanel() {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">玻璃强度</span>
+            <span className="settings-desc">调整背景透出与暗色 tint</span>
+          </div>
+          <div className="seg">
+            {GLASS_INTENSITY_ORDER.map((intensity) => (
+              <button
+                key={intensity}
+                className={`seg-item${intensity === glassIntensity ? " active" : ""}`}
+                disabled={glassBusy}
+                onClick={() => setGlassIntensity(intensity)}
+              >
+                {GLASS_INTENSITY_LABEL[intensity]}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">真实毛玻璃</span>
+            <span
+              className={`settings-desc${glassEnabled && !glassStatus.active ? " degraded" : ""}`}
+            >
+              {glassDescription}
+            </span>
+          </div>
+          <button
+            className={`switch${glassEnabled ? " on" : ""}${glassEnabled && !glassStatus.active ? " degraded" : ""}`}
+            role="switch"
+            aria-checked={glassEnabled}
+            aria-label="真实毛玻璃"
+            disabled={glassBusy}
+            onClick={() => setGlassEnabled(!glassEnabled)}
+            title={glassDescription}
+          >
+            <span className="switch-knob" />
+          </button>
         </section>
 
         <section className="settings-row">

@@ -7,20 +7,18 @@ Rust handles all native Windows capabilities (window positioning, always-on-top,
 non-activating clicks), while the frontend — **React + Vite + TypeScript + Motion + Zustand** — handles rendering
 and morph animations.
 
-> Current status: **M1–M4 are all complete** (transparent topmost pill + three-state morph, Now Playing / SMTC,
-> Volume HUD + battery / system info, File Shelf + tray + settings persistence + launch-at-startup). See the roadmap at the end.
+> Current status: **M1–M4 are complete**. The **M5A native Windows live-glass technical preview is complete**.
+> M5B Liquid Glass styling and optional M5C refraction have not started.
 
 ---
 
 ## ✨ Implemented (M1)
 
 - A **borderless / transparent / always-on-top** floating window, pinned to the **horizontal center at the top of the primary monitor**.
-- **Dark glass pill**: the pill is a **self-contained dark translucent glass** surface (CSS dark base + thin stroke + shadow
-  + inner highlight); the desktop still shows faintly through it, with corner radius ≥ 22px.
-  > Note: system-wide Acrylic is deliberately **not** used. On Win11, Acrylic is composited by DWM over the **entire window**
-  > and **cannot** be clipped by the pill's `SetWindowRgn`, which would smear the whole 760×480 window into a gray block
-  > covering the desktop. So the pill renders its own glass look while the rest of the window stays fully transparent and
-  > click-through (see "Key Design" and "Known Trade-offs").
+- **Safe glass fallback**: the default is a self-contained dark translucent CSS material (dark base + thin stroke + shadow
+  + inner highlight), with corner radius ≥ 22px. M5A optionally adds a separate native underlay for real live desktop blur.
+  > Whole-window Acrylic is still deliberately avoided: it is not reliably clipped by `SetWindowRgn` and can turn the fixed
+  > 760×900 window into a gray block. M5A paints glass only inside the current pill region on an independent underlay.
 - **Three-state machine + morph animation** (Motion spring, 200–350ms, 60fps):
   1. **Collapsed** — a slim pill showing only minimal info (currently a clock placeholder module).
   2. **Hover** — slightly enlarges on hover to show a preview.
@@ -58,7 +56,7 @@ session and shows "Now Playing" in real time:
 
 | Dependency | Version / Note |
 | --- | --- |
-| Windows | 11 (best Acrylic effect; Windows 10 1809+ also works, with slight visual differences) |
+| Windows | 11 for M5A HostBackdrop; unsupported or policy-disabled systems automatically use the CSS fallback |
 | Node.js | ≥ 18 (verified with v24 in development) |
 | Rust | Stable + **MSVC** toolchain (`x86_64-pc-windows-msvc`) |
 | WebView2 | Built into Windows 11; install the Evergreen Runtime if missing |
@@ -117,10 +115,11 @@ Inspired by macOS's Yoink / Dropover (the iPhone Dynamic Island itself has no su
    overlay; **release** to park it.
    > How it works: the app registers a **native OLE drop target** (`IDropTarget`) on the Rust side — this must be self-implemented
    > because wry's built-in drop events don't fire on a **transparent (layered) window**. System drag-drop hit-testing uses
-   > `WindowFromPoint`, which **is** affected by our rounded-corner clipping (`SetWindowRgn`), so registering only on the pill makes
-   > the drop zone just that tiny pill and hard to hit. To fix this, a separate **invisible top-strip window** (island width × ~220px,
-   > transparent, click-through, not region-clipped) hosts the same drop target, enlarging the drop zone to the **entire top strip** —
-   > easy to hit, without affecting click/hover pass-through to the pill.
+   > `WindowFromPoint`, which **is** affected by rounded-corner clipping (`SetWindowRgn`). A separate **invisible shaped catcher**
+   > hosts the same target, mirrors the island's real HWND region every frame, and stays directly behind the main window. It does not
+   > participate in pointer hit-testing outside the pill, while ordinary input reaches WebView2 directly. OLE targets remain registered
+   > on the main window, child windows, and catcher. Drag onto the **visible pill**;
+   > once entered, the island expands and the drop region grows with it.
 2. **Backup add**: expanded panel → the shelf card's top-right **＋** (opens a file dialog) or **📋** (add file/text from clipboard).
 3. **Retrieve · copy to Explorer (reliable path)**: click an item's **⧉** or "Copy all" at the bottom — the file is placed on the
    clipboard as `CF_HDROP`, and **Ctrl+V in any folder** completes a **real file copy** (the reliable Windows equivalent of Yoink's "drag out").
@@ -130,13 +129,37 @@ Inspired by macOS's Yoink / Dropover (the iPhone Dynamic Island itself has no su
 6. **Text snippets**: text added via 📋 shows as a 📝 row; **⧉** copies the text, **✕** removes it.
 7. **Persistence**: shelf content is written to `shelf.json` and **survives restarts** until you remove / clear it.
 8. **Tray & Settings**: the tray icon's right-click menu has "Settings / Launch at startup / Quit"; **right-clicking the pill**
-   opens the in-app settings panel (the browser's default context menu is suppressed); settings (system-info style / autostart)
-   persist to `settings.json` and survive restarts.
+   opens the in-app settings panel (the browser's default context menu is suppressed); system-info style, native-glass
+   preference/intensity, and autostart survive restarts.
 
-> **Known boundaries**: ① drag-in is handled by the native `IDropTarget` + top-strip catcher window, with the drop zone being a full
-> top-center strip; some sources (DRM-protected items, non-`CF_HDROP` virtual files) may fail to resolve a path — use ＋ / 📋 as
+> **Known boundaries**: ① drag-in is handled by the native `IDropTarget` + a shaped invisible catcher, with the initial drop zone matching
+> the visible pill; some sources (DRM-protected items, non-`CF_HDROP` virtual files) may fail to resolve a path — use ＋ / 📋 as
 > reliable entry points; ② drag-out to Explorer is best-effort, with the reliable alternative being copy (CF_HDROP) then paste;
 > ③ in dev mode the autostart registry entry points to the dev target exe; after packaging it becomes the proper path automatically.
+
+---
+
+## 🪟 M5A · Native Windows Live Glass (technical preview)
+
+- Uses the public `Windows.UI.Composition`, `DesktopWindowTarget`, and `CreateHostBackdropBrush` APIs in a separate
+  `DI_GlassUnderlay` Win32 window, with a light Gaussian blur and dark tint.
+- The underlay stays directly beneath the Tauri window and uses tool-window / no-activate / click-through behavior. Its position,
+  size, corner radius, and real HWND region follow the island every frame.
+- Both the underlay and OLE catcher receive the current pill-shaped `SetWindowRgn`, so neither creates an invisible click/drop dead zone.
+- Settings expose three real native intensities — **Subtle / Balanced / Vivid**. The preview defaults off, Balanced is the safe
+  default intensity, and changes persist in `settings.json`.
+- Windows Transparency Effects and High Contrast are respected. Policy/API/resource failures report a reason and switch to an
+  opaque dark fallback; transient resource failures are retried in the background.
+- M5A performs no screen capture, sends no desktop pixels to JavaScript, and uses no private DWM attributes. M5B/M5C are not included.
+
+### 🔍 How to test M5A
+
+1. Right-click the island, enable "Native glass," then place a text-heavy page or video behind it and verify the material updates live.
+2. Switch Subtle / Balanced / Vivid and verify the strength changes immediately and survives a restart.
+3. Check Collapsed / Hover / Expanded / Volume HUD / Settings: the glass edge must track the island and outside pixels stay clickable.
+4. Drag a file from Explorer directly onto the visible pill; the island should auto-expand and accept the drop.
+5. Disable Windows "Transparency effects": the UI should report the fallback and become a solid dark surface; restoring the policy
+   should restore native glass automatically.
 
 ---
 
@@ -167,8 +190,9 @@ dynamic-island/
    │  ├─ media.rs            # M2: SMTC worker thread + Now Playing read & control commands
    │  ├─ system.rs           # M3: low-frequency battery/CPU/memory event push
    │  ├─ volume.rs           # M3: WASAPI volume event callback + read/write/mute
-   │  └─ clipboard.rs        # M4: clipboard CF_HDROP file copy / CF_UNICODETEXT text / read
-   │  └─ dragdrop.rs         # M4f: native OLE drop target (IDropTarget) so a transparent window can catch file drag-in
+   │  ├─ clipboard.rs        # M4: clipboard CF_HDROP file copy / CF_UNICODETEXT text / read
+   │  ├─ dragdrop.rs         # M4f: native OLE drop target (IDropTarget) + shaped invisible catcher
+   │  └─ glass.rs            # M5A: HostBackdrop Composition underlay, policy fallback, and lifecycle
    ├─ tauri.conf.json        # Window config (760×900, transparent, borderless, topmost, hidden until positioned)
    └─ Cargo.toml
 ```
@@ -198,9 +222,16 @@ Added in M4 (shelf retrieval):
   and its child HWNDs): on drag enter it `emit`s `"shelf-drag-enter"`, on drop it parses `CF_HDROP` paths and `emit`s
   `"shelf-drop", paths`, and on leave `"shelf-drag-leave"`; the frontend `useShelfDrag()` listens to these three events to drive
   `dragActive` and shelving (see `modules/shelf.tsx`). **Why self-implemented**: wry's built-in `onDragDropEvent` doesn't fire on
-  a transparent (layered) window. And because OLE hit-testing (`WindowFromPoint`) **is** clipped by `SetWindowRgn` down to the pill,
-  a separate **invisible top-strip window** (`ensure_catcher`: `WS_EX_LAYERED` alpha=1 + `WM_NCHITTEST→HTTRANSPARENT` click-through,
-  no region clip) hosts the same drop target to enlarge the drop zone to the full top strip; it follows monitor changes via `reposition()`.
+  a transparent (layered) window. Because OLE hit-testing (`WindowFromPoint`) **is** affected by `SetWindowRgn`, a separate
+  **shaped invisible catcher** (`ensure_catcher`: `WS_EX_LAYERED` alpha=1 + `WM_NCHITTEST→HTTRANSPARENT`) hosts the same target.
+  `sync_region()` mirrors the visible island region every frame, while `reposition()` follows monitor changes.
+
+Added in M5A (native glass):
+
+- `set_glass_enabled(enabled, intensity)` / `get_glass_status()` — enable the underlay, select one of three strengths, and read
+  the effective native/fallback state.
+- Event `glass-status-changed` — reports active/fallback state, renderer, reason, and intensity. The frontend only reduces its
+  overlay opacity when `active=true`; every other state uses the safe fallback.
 
 ### Module System
 
@@ -212,12 +243,14 @@ independent modules without touching the shell.
 
 ## 🔑 Key Design Notes
 
-- **Fixed large window + region clipping**: the native window is a fixed 760×480 transparent canvas that **never resizes**;
+- **Fixed large window + region clipping**: the native window is a fixed 760×900 transparent canvas that **never resizes**;
   `CreateRoundRectRgn` + `SetWindowRgn` dynamically clip a rounded rectangle matching the current pill/panel. This one trick solves
   three things at once: ① pixels outside the region automatically **pass through** to the window below; ② native DOM hover/click is
   preserved inside the region; ③ the WebView viewport is stable, keeping morph animation at a smooth 60fps.
   > Note: `SetWindowRgn` only clips **hit-testing and GDI drawing**, **not** DWM's Acrylic background compositing — which is exactly
   > why we don't use whole-window Acrylic (otherwise a gray block covers the desktop).
+- **Independent glass underlay**: M5A does not modify WebView2's internal Composition tree. It pairs a non-activating,
+  fully click-through HWND with the main window and paints HostBackdrop only inside the synchronized pill region.
 - **Clickable yet never steals focus (the core challenge)**: setting only `WS_EX_NOACTIVATE` causes a problem — when this process
   isn't foreground, Windows treats a click as an "activation attempt" and swallows it, so the WebView never receives the DOM click.
   The solution is to **subclass the window procedure** and return `MA_NOACTIVATE` for `WM_MOUSEACTIVATE`: telling the system
@@ -238,10 +271,9 @@ independent modules without touching the shell.
   an inner CSS corner radius is layered on to mitigate this visually.
 - Per-region pass-through relies on window-region clipping + frontend hover; sweeping the mouse extremely fast has a theoretical
   millisecond-scale delay, imperceptible in practice.
-- **No "live desktop blur" for now**: for the reasons above, no system-level real-time Acrylic blur is done behind the pill (dark
-  translucent glass is used instead). If true desktop blur is really needed, a future option is to resize the native window
-  **frame-by-frame with the pill** (window = pill), at the cost of possible WebView2 reflow flicker during morphs — the opposite
-  trade-off to today's "fixed large window that never resizes"; to be evaluated in a later milestone.
+- M5A requires Windows 11's public Composition HostBackdrop path and an enabled transparency policy; otherwise it uses a solid fallback.
+- M5A samples and blurs the real background but does not geometrically bend background lines. Liquid Glass highlights belong to M5B;
+  real refraction remains the optional M5C experiment.
 - The first `cargo build` must fetch and compile Rust dependencies and takes a while — this is normal (subsequent incremental builds ~10s).
 
 ---
@@ -254,6 +286,9 @@ independent modules without touching the shell.
 | **M2** | Now Playing (SMTC: title/artist/cover/progress + previous/play-pause/next) | ✅ Done |
 | **M3** | Volume HUD (a volume change briefly expands a slider that auto-collapses) + battery/CPU/memory | ✅ Done |
 | **M4** | File Shelf (Yoink-style auto-expand on drag-in) + tray menu + settings persistence + launch at startup + right-click settings | ✅ Done |
+| **M5A** | Independent Windows Composition underlay + HostBackdrop live glass + three strengths and safe fallback | ✅ Complete (technical preview) |
+| **M5B** | Liquid Glass highlights, inner reflections, and edge treatment | ⏸ Not started |
+| **M5C** | D3D11/HLSL real background refraction | ⏸ Optional experiment |
 
 ---
 
