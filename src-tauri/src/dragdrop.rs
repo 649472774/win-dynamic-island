@@ -341,15 +341,12 @@ mod imp {
         let _ = ShowWindow(catcher, SW_SHOWNOACTIVATE);
     }
 
-    pub fn sync_region<R: Runtime>(window: &WebviewWindow<R>, region: Region) {
+    pub fn sync_region<R: Runtime>(_window: &WebviewWindow<R>, region: Region) {
         let catcher = CATCHER.load(Ordering::Relaxed);
         if catcher == 0 {
             return;
         }
         unsafe {
-            if let Ok(main) = window.hwnd() {
-                position_over_island(HWND(catcher as _), HWND(main.0 as _));
-            }
             apply_catcher_region(HWND(catcher as _), region);
         }
     }

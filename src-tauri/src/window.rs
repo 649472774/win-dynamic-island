@@ -244,14 +244,29 @@ pub fn install_topmost_guard<R: Runtime>(window: &WebviewWindow<R>) {
 /// Clip the window to a rounded rectangle. Everything outside becomes
 /// click-through and the Acrylic backdrop is shaped into the pill.
 pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
+    let previous = window
+        .try_state::<RegionState>()
+        .and_then(|state| *state.last.lock().expect("region mutex poisoned"));
+    let shrinking = previous.is_some_and(|previous| r.w < previous.w || r.h < previous.h);
+
+    // Keep the non-content layers inside the main window at every intermediate
+    // step: shrink them first when contracting, but grow the main window first
+    // when expanding. This prevents a one-frame glass/catcher outline.
+    if shrinking {
+        crate::glass::sync_region(window, r);
+        crate::dragdrop::sync_region(window, r);
+    }
+
     #[cfg(windows)]
     unsafe {
         if let Some(hwnd) = hwnd_of(window) {
             // CreateRoundRectRgn uses the *diameter* of the corner ellipse.
             let dia = (r.radius.max(0) * 2).max(1);
             let rgn = CreateRoundRectRgn(r.x, r.y, r.x + r.w, r.y + r.h, dia, dia);
-            // SetWindowRgn takes ownership of the region handle.
-            SetWindowRgn(hwnd, Some(rgn), true);
+            // Motion repaints the WebView on the same frame; forcing an extra
+            // synchronous redraw here causes visible stalls during glass morphs.
+            // SetWindowRgn still takes ownership of the region handle.
+            SetWindowRgn(hwnd, Some(rgn), false);
         }
     }
     #[cfg(not(windows))]
@@ -260,9 +275,12 @@ pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
     if let Some(state) = window.try_state::<RegionState>() {
         *state.last.lock().unwrap() = Some(r);
     }
-    crate::dragdrop::sync_region(window, r);
-    crate::glass::sync_region(window, r);
+    if !shrinking {
+        crate::glass::sync_region(window, r);
+        crate::dragdrop::sync_region(window, r);
+    }
 }
+
 /// Re-assert the pill region if Windows has silently dropped or changed it.
 ///
 /// `SetWindowRgn` can be cleared out from under us by tao/WebView2's asynchronous

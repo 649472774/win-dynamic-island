@@ -14,7 +14,12 @@ import { listen } from "@tauri-apps/api/event";
 import { useIsland, type IslandState } from "../store/island";
 import { useModulesVersion } from "../store/modules";
 import { useSettings } from "../store/settings";
-import { recenter, revealIsland, setIslandRegion } from "../lib/native";
+import {
+  recenter,
+  revealIsland,
+  setIslandRegion,
+  type RegionPx,
+} from "../lib/native";
 import { getAllModules, getPrimaryModule } from "../modules";
 import { useShelfDrag } from "../modules/shelf";
 import SettingsPanel from "./SettingsPanel";
@@ -57,6 +62,7 @@ export default function Island() {
   const pillRef = useRef<HTMLDivElement>(null);
   const revealed = useRef(false);
   const collapseTimer = useRef<number | null>(null);
+  const lastReportedRegion = useRef<RegionPx | null>(null);
   // Tracks real mouse-hover so a drag release doesn't collapse a pill the user
   // is actively pointing at.
   const hovering = useRef(false);
@@ -95,20 +101,8 @@ export default function Island() {
       ? { ...SIZES.expanded, h: expandedH }
       : SIZES[state];
 
-  /** Measure the pill and push its rounded rect (in physical px) to Rust. */
-  const reportRegion = useCallback(() => {
-    const el = pillRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || size.r;
-    void setIslandRegion({
-      x: Math.round(rect.left * dpr),
-      y: Math.round(rect.top * dpr),
-      w: Math.round(rect.width * dpr),
-      h: Math.round(rect.height * dpr),
-      radius: Math.round(radius * dpr),
-    })
+  const pushRegion = useCallback((region: RegionPx) => {
+    void setIslandRegion(region)
       .then(() => {
         if (!revealed.current) {
           revealed.current = true;
@@ -118,8 +112,40 @@ export default function Island() {
           });
         }
       })
-      .catch(() => {});
-  }, [size.r]);
+      .catch((error) => {
+        lastReportedRegion.current = null;
+        console.error("Failed to synchronize the island region", error);
+      });
+  }, []);
+
+  /** Measure the pill and report only changed physical-pixel geometry. */
+  const reportRegion = useCallback(() => {
+    const el = pillRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || size.r;
+    const region = {
+      x: Math.round(rect.left * dpr),
+      y: Math.round(rect.top * dpr),
+      w: Math.round(rect.width * dpr),
+      h: Math.round(rect.height * dpr),
+      radius: Math.round(radius * dpr),
+    };
+    const previous = lastReportedRegion.current;
+    if (
+      previous &&
+      previous.x === region.x &&
+      previous.y === region.y &&
+      previous.w === region.w &&
+      previous.h === region.h &&
+      previous.radius === region.radius
+    ) {
+      return;
+    }
+    lastReportedRegion.current = region;
+    pushRegion(region);
+  }, [pushRegion, size.r]);
 
   // Apply the initial region as soon as the pill has painted.
   useEffect(() => {
