@@ -308,6 +308,44 @@ function CollapsedNowPlaying(_: IslandModuleProps) {
   );
 }
 
+/* Rounded transport icons (borderless, round-joined strokes) — replaces the
+   emoji glyphs so the buttons match the island's glass style. Side buttons use
+   the 22px set; the main play/pause uses the larger 30px set (V5 size hierarchy). */
+function IconPrev() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" aria-hidden="true">
+      <rect x="5.4" y="5.5" width="2.6" height="13" rx="1.3" stroke="none" />
+      <path d="M19 6.4 L10 12 L19 17.6 Z" />
+    </svg>
+  );
+}
+
+function IconNext() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" aria-hidden="true">
+      <path d="M5 6.4 L14 12 L5 17.6 Z" />
+      <rect x="16" y="5.5" width="2.6" height="13" rx="1.3" stroke="none" />
+    </svg>
+  );
+}
+
+function IconPlay() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" aria-hidden="true">
+      <path d="M8 5.5 L18.5 12 L8 18.5 Z" />
+    </svg>
+  );
+}
+
+function IconPause() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6.6" y="5.2" width="3.6" height="13.6" rx="1.8" />
+      <rect x="13.8" y="5.2" width="3.6" height="13.6" rx="1.8" />
+    </svg>
+  );
+}
+
 function ExpandedNowPlaying({ state }: IslandModuleProps) {
   const np = useNP((s) => s.np);
   const cover = useNP((s) => s.cover);
@@ -348,7 +386,7 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
               onClick={control(mediaPrevious)}
               aria-label="上一首"
             >
-              ⏮
+              <IconPrev />
             </button>
             <button
               className="np-btn np-btn-main"
@@ -356,7 +394,7 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
               onClick={control(mediaPlayPause)}
               aria-label={playing ? "暂停" : "播放"}
             >
-              {playing ? "⏸" : "▶"}
+              {playing ? <IconPause /> : <IconPlay />}
             </button>
             <button
               className="np-btn"
@@ -364,7 +402,7 @@ function ExpandedNowPlaying({ state }: IslandModuleProps) {
               onClick={control(mediaNext)}
               aria-label="下一首"
             >
-              ⏭
+              <IconNext />
             </button>
           </div>
         </div>

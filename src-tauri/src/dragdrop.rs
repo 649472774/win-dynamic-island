@@ -54,6 +54,32 @@ pub fn reposition(app: &AppHandle) {
     let _ = app;
 }
 
+/// Re-arm the native drop target: re-register the `IDropTarget` on the current
+/// top-level window and all of its (possibly newly recreated) descendant HWNDs,
+/// and make sure the invisible catch strip exists and is aligned.
+///
+/// Call this from the frontend once on every (re)load. A webview reload — e.g. a
+/// Vite HMR *full* reload, which is triggered whenever `shelf.tsx` changes
+/// because `useShelfDrag` is a non-component export — can recreate WebView2's
+/// child render HWND and orphan the OLE registration that only ran during the
+/// startup burst. `WindowFromPoint` then returns that fresh, unregistered child
+/// for drops over the panel body, so drag-in silently stops working below the
+/// top catch strip. Re-arming on mount re-registers the current child. Safe
+/// no-op off Windows.
+pub fn rearm(app: &AppHandle) {
+    #[cfg(windows)]
+    imp::rearm(app);
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
+/// Frontend-invokable version of [`rearm`]. The UI calls this once on mount so
+/// drag-in survives webview reloads.
+#[tauri::command]
+pub fn rearm_drop_target(app: AppHandle) {
+    rearm(&app);
+}
+
 #[cfg(windows)]
 mod imp {
     use tauri::{AppHandle, Emitter, Manager};
@@ -64,23 +90,23 @@ mod imp {
         COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINTL, RECT, WPARAM,
     };
     use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
-    use windows::Win32::System::Com::{
-        IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL,
-    };
+    use windows::Win32::System::Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Ole::{
-        OleInitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
-        DROPEFFECT_COPY, IDropTarget, IDropTarget_Impl,
+        IDropTarget, IDropTarget_Impl, OleInitialize, RegisterDragDrop, ReleaseStgMedium,
+        RevokeDragDrop, CF_HDROP, DROPEFFECT, DROPEFFECT_COPY,
     };
     use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
-    use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+    use windows::Win32::UI::Shell::{
+        DefSubclassProc, DragQueryFileW, RemoveWindowSubclass, SetWindowSubclass, HDROP,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, EnumChildWindows, GetWindowRect,
-        RegisterClassW, SetLayeredWindowAttributes, SetWindowPos, ShowWindow, HTTRANSPARENT,
-        HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_NCHITTEST,
+        CreateWindowExW, DefWindowProcW, EnumChildWindows, GetWindowRect, RegisterClassW,
+        SetLayeredWindowAttributes, SetWindowPos, ShowWindow, HTTRANSPARENT, HWND_TOPMOST,
+        LWA_ALPHA, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, WM_NCDESTROY, WM_NCHITTEST,
         WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
-    use windows_core::{implement, BOOL, Ref, Result as WinResult, PCWSTR};
+    use windows_core::{implement, Ref, Result as WinResult, BOOL, PCWSTR};
 
     /// COM object receiving the OS drag-drop callbacks. Holds an `AppHandle` so
     /// it can forward the gesture to the frontend as Tauri events.
@@ -151,6 +177,35 @@ mod imp {
         }
     }
 
+    const DROP_TARGET_SUBCLASS_ID: usize = 0x4449_4454;
+
+    unsafe extern "system" fn drop_target_subclass_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        subclass_id: usize,
+        _ref_data: usize,
+    ) -> LRESULT {
+        if msg == WM_NCDESTROY {
+            let _ = RevokeDragDrop(hwnd);
+            let _ = RemoveWindowSubclass(hwnd, Some(drop_target_subclass_proc), subclass_id);
+        }
+        DefSubclassProc(hwnd, msg, wparam, lparam)
+    }
+
+    unsafe fn register_target(hwnd: HWND, target: &IDropTarget) {
+        let _ = RevokeDragDrop(hwnd);
+        if RegisterDragDrop(hwnd, target).is_ok() {
+            let _ = SetWindowSubclass(
+                hwnd,
+                Some(drop_target_subclass_proc),
+                DROP_TARGET_SUBCLASS_ID,
+                0,
+            );
+        }
+    }
+
     /// Pull the dropped file list (`CF_HDROP`) out of the drag data object.
     unsafe fn extract_paths(obj: &IDataObject) -> Vec<String> {
         let fmt = FORMATETC {
@@ -201,8 +256,7 @@ mod imp {
         let _ = OleInitialize(None);
 
         let target: IDropTarget = DropCatcher { app: app.clone() }.into();
-        let _ = RevokeDragDrop(top);
-        let _ = RegisterDragDrop(top, &target);
+        register_target(top, &target);
 
         let mut kids: Vec<isize> = Vec::new();
         let _ = EnumChildWindows(
@@ -212,8 +266,7 @@ mod imp {
         );
         for k in &kids {
             let h = HWND(*k as _);
-            let _ = RevokeDragDrop(h);
-            let _ = RegisterDragDrop(h, &target);
+            register_target(h, &target);
         }
     }
 
@@ -316,8 +369,7 @@ mod imp {
         position_over_island(catcher, island);
 
         let target: IDropTarget = DropCatcher { app: app.clone() }.into();
-        let _ = RevokeDragDrop(catcher);
-        let _ = RegisterDragDrop(catcher, &target);
+        register_target(catcher, &target);
         CATCHER.store(catcher.0 as isize, Ordering::Relaxed);
     }
 
@@ -333,6 +385,27 @@ mod imp {
             if let Some(win) = a.get_webview_window("main") {
                 if let Ok(h) = win.hwnd() {
                     position_over_island(HWND(c as _), HWND(h.0 as _));
+                }
+            }
+        });
+    }
+
+    /// Re-register the drop target on the current top-level + descendant HWNDs
+    /// and realign the catch strip. Runs on the main (UI) thread. See the public
+    /// [`super::rearm`] doc for why this is needed after webview reloads.
+    pub fn rearm(app: &AppHandle) {
+        let handle = app.clone();
+        let inner = app.clone();
+        let _ = handle.run_on_main_thread(move || unsafe {
+            if let Some(win) = inner.get_webview_window("main") {
+                if let Ok(h) = win.hwnd() {
+                    let top = HWND(h.0 as _);
+                    register_pass(&inner, top);
+                    ensure_catcher(&inner, top);
+                    let c = CATCHER.load(Ordering::Relaxed);
+                    if c != 0 {
+                        position_over_island(HWND(c as _), top);
+                    }
                 }
             }
         });

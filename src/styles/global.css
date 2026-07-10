@@ -495,30 +495,31 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .np-btn {
+  -webkit-appearance: none;
+  appearance: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--glass-border);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  font-size: 16px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition: color 0.15s ease, transform 0.12s ease, opacity 0.15s ease;
 }
 
 .np-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .np-btn:active:not(:disabled) {
-  transform: scale(0.92);
+  transform: scale(0.88);
 }
 
 .np-btn:disabled {
@@ -527,16 +528,14 @@ body,
 }
 
 .np-btn-main {
-  width: 48px;
-  height: 48px;
-  font-size: 19px;
-  background: var(--accent-soft);
-  border-color: rgba(87, 166, 255, 0.3);
-  color: #cfe4ff;
+  width: 52px;
+  height: 52px;
+  color: #fff;
 }
 
 .np-btn-main:hover:not(:disabled) {
-  background: rgba(87, 166, 255, 0.28);
+  color: #fff;
+  transform: scale(1.06);
 }
 
 /* ----------------------------- System module ---------------------------- */
@@ -586,9 +585,10 @@ body,
 
 .sys-row-name {
   flex: none;
-  width: 34px;
+  width: 40px;
   font-size: 12px;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .sys-row-track {
@@ -1082,90 +1082,234 @@ body,
   border-radius: 10px;
 }
 
-.shelf-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.shelf-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.shelf-card {
+  position: relative;
+  min-height: 92px;
+  padding: 12px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 168px;
-  overflow-y: auto;
-}
-
-.shelf-item {
-  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
+  gap: 7px;
+  text-align: center;
   cursor: grab;
+  overflow: hidden;
+  transition: background 0.12s ease;
 }
 
-.shelf-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+.shelf-card:hover {
+  background: rgba(255, 255, 255, 0.09);
 }
 
-.shelf-item:active {
+.shelf-card:active {
   cursor: grabbing;
 }
 
-.shelf-file-icon {
-  font-size: 14px;
+.shelf-badge {
   flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3);
 }
 
-.shelf-file-name {
-  flex: 1;
-  min-width: 0;
+.shelf-badge.ext-img { background: linear-gradient(160deg, #3ddc6b, #1ea34a); }
+.shelf-badge.ext-pdf { background: linear-gradient(160deg, #ff6b63, #e23b32); }
+.shelf-badge.ext-doc { background: linear-gradient(160deg, #6ab4ff, #2f7fe0); }
+.shelf-badge.ext-sheet { background: linear-gradient(160deg, #2ee6c0, #12a98c); }
+.shelf-badge.ext-ppt { background: linear-gradient(160deg, #ff9d5c, #ec6a1f); }
+.shelf-badge.ext-zip { background: linear-gradient(160deg, #ffc46b, #f09a20); }
+.shelf-badge.ext-code { background: linear-gradient(160deg, #cd93ff, #9a55f0); }
+.shelf-badge.ext-audio { background: linear-gradient(160deg, #ff8ac2, #e0559a); }
+.shelf-badge.ext-video { background: linear-gradient(160deg, #8f9bff, #5a63e0); }
+.shelf-badge.ext-default { background: linear-gradient(160deg, #8a93a8, #5b6478); }
+
+.shelf-card-name {
+  width: 100%;
   font-size: 12px;
+  font-weight: 600;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.shelf-item-actions {
-  flex: none;
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
+.shelf-card-meta {
+  font-size: 10px;
+  color: var(--text-faint);
 }
 
-.shelf-item:hover .shelf-item-actions {
-  opacity: 1;
+.shelf-card.kind-text {
+  align-items: stretch;
+  text-align: left;
+  cursor: default;
+  gap: 6px;
+  background: rgba(87, 166, 255, 0.08);
+  border: 1px solid rgba(87, 166, 255, 0.2);
+  border-top: 2px solid var(--accent);
 }
 
-.shelf-item-actions button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+.shelf-card.kind-text:hover {
+  background: rgba(87, 166, 255, 0.13);
+}
+
+.shelf-text-body {
   font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.shelf-text-foot {
+  margin-top: auto;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.shelf-card-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  z-index: 2;
   transition:
+    opacity 0.12s ease,
     background 0.12s ease,
     color 0.12s ease;
 }
 
-.shelf-item-actions button:hover {
+.shelf-card:hover .shelf-card-x {
+  opacity: 1;
+}
+
+.shelf-card-x:hover {
+  background: rgba(255, 90, 90, 0.65);
+  color: #fff;
+}
+
+.shelf-card-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 6px 7px;
+  background: linear-gradient(to top, rgba(8, 8, 12, 0.94) 55%, rgba(8, 8, 12, 0));
+  opacity: 0;
+  transform: translateY(6px);
+  z-index: 1;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.shelf-card:hover .shelf-card-actions {
+  opacity: 1;
+  transform: none;
+}
+
+.shelf-card-actions button {
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.14);
   color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease;
 }
 
-.shelf-item.kind-text {
-  cursor: default;
+.shelf-card-actions button:hover {
+  background: rgba(255, 255, 255, 0.26);
 }
 
-.shelf-note {
+/* Floating status pill (方案 A): absolutely positioned over the shelf, slides in
+ * from the top edge and fades out. Because it's out of flow, showing/hiding it
+ * never changes the panel height — no reflow / no "整个岛回缩抖动". */
+.shelf-toast {
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  transform: translateX(-50%) translateY(-8px);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 24px);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(20, 22, 28, 0.92);
+  border: 1px solid var(--glass-highlight);
+  color: var(--text);
   font-size: 11px;
-  color: var(--accent, #6ab0ff);
-  padding: 2px 2px 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 6;
+}
+
+.shelf-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.shelf-toast-dot {
+  color: var(--accent);
+  font-size: 8px;
+  flex: none;
+}
+
+.shelf-toast-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shelf-bulk {

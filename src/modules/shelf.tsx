@@ -29,7 +29,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
 import { useIsland } from "../store/island";
-import { clipboardCopyFiles, clipboardCopyText, clipboardRead } from "../lib/native";
+import { clipboardCopyFiles, clipboardCopyText, clipboardRead, rearmDropTarget } from "../lib/native";
 
 type ShelfKind = "file" | "text";
 
@@ -55,6 +55,37 @@ function baseName(p: string): string {
 
 function fileUrl(p: string): string {
   return "file:///" + p.replace(/\\/g, "/");
+}
+
+type FileCat =
+  | "img" | "pdf" | "doc" | "sheet" | "ppt" | "zip" | "code" | "audio" | "video" | "default";
+
+/** Derive a short badge label + color category + Chinese type name from a filename. */
+function fileMeta(name: string): { badge: string; cat: FileCat; type: string } {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  const groups: Array<[FileCat, string, string[]]> = [
+    ["img", "图片", ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "ico", "tif", "tiff"]],
+    ["pdf", "PDF", ["pdf"]],
+    ["doc", "文档", ["doc", "docx", "txt", "md", "rtf", "odt", "pages"]],
+    ["sheet", "表格", ["xls", "xlsx", "csv", "numbers", "ods"]],
+    ["ppt", "幻灯片", ["ppt", "pptx", "key", "odp"]],
+    ["zip", "压缩包", ["zip", "rar", "7z", "tar", "gz", "bz2", "xz"]],
+    ["code", "代码", [
+      "js", "ts", "tsx", "jsx", "py", "rs", "go", "java", "c", "cpp", "h", "hpp",
+      "cs", "rb", "php", "css", "scss", "html", "json", "yaml", "yml", "toml", "xml", "sh",
+    ]],
+    ["audio", "音频", ["mp3", "wav", "flac", "aac", "ogg", "m4a"]],
+    ["video", "视频", ["mp4", "mov", "avi", "mkv", "webm", "flv"]],
+  ];
+  for (const [cat, type, exts] of groups) {
+    if (exts.includes(ext)) return { badge: ext.slice(0, 4).toUpperCase(), cat, type };
+  }
+  return {
+    badge: ext ? ext.slice(0, 4).toUpperCase() : "•",
+    cat: "default",
+    type: ext ? ext.toUpperCase() : "文件",
+  };
 }
 
 /** First non-empty line, trimmed and clipped, for a text item's label. */
@@ -179,6 +210,11 @@ const useShelf = create<ShelfStore>((set, get) => ({
 export function useShelfDrag() {
   useEffect(() => {
     if (!useShelf.getState().hydrated) void useShelf.getState().hydrate();
+    // Re-arm the native drop target on every mount. A webview reload (e.g. a
+    // Vite HMR full reload after editing this file) can recreate WebView2's
+    // child HWND and orphan the OLE registration from the startup burst, which
+    // silently breaks drag-in over the panel body. This restores it.
+    void rearmDropTarget().catch(() => {});
     let alive = true;
     const uns: Array<() => void> = [];
     const track = (p: Promise<() => void>) => {
@@ -209,6 +245,7 @@ function ShelfTile(_props: IslandModuleProps) {
   const remove = useShelf((s) => s.remove);
   const clear = useShelf((s) => s.clear);
   const [note, setNote] = useState<string>("");
+  const [noteShow, setNoteShow] = useState<boolean>(false);
   const noteTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -220,8 +257,13 @@ function ShelfTile(_props: IslandModuleProps) {
 
   const flash = (msg: string) => {
     setNote(msg);
+    setNoteShow(true);
+    // Keep the text mounted and only toggle visibility so the pill can fade/slide
+    // out cleanly (an unmount would kill the exit animation). The floating pill is
+    // absolutely positioned, so showing/hiding it never reflows the panel — no
+    // more "整个岛回缩抖动".
     if (noteTimer.current) window.clearTimeout(noteTimer.current);
-    noteTimer.current = window.setTimeout(() => setNote(""), 1400);
+    noteTimer.current = window.setTimeout(() => setNoteShow(false), 1400);
   };
 
   const fileItems = items.filter((i) => i.kind === "file");
@@ -316,7 +358,14 @@ function ShelfTile(_props: IslandModuleProps) {
         </span>
       </div>
 
-      {note ? <div className="shelf-note">{note}</div> : null}
+      <div
+        className={`shelf-toast${noteShow ? " show" : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        <span className="shelf-toast-dot">●</span>
+        <span className="shelf-toast-msg">{note}</span>
+      </div>
 
       {items.length === 0 ? (
         <div className="shelf-empty">
@@ -324,40 +373,44 @@ function ShelfTile(_props: IslandModuleProps) {
         </div>
       ) : (
         <>
-          <ul className="shelf-list">
-            {items.map((it) => (
-              <li
-                key={it.id}
-                className={`shelf-item kind-${it.kind}`}
-                draggable={it.kind === "file"}
-                onDragStart={
-                  it.kind === "file"
-                    ? (e) => {
-                        e.dataTransfer.setData("text/plain", it.path!);
-                        e.dataTransfer.setData("text/uri-list", fileUrl(it.path!));
-                      }
-                    : undefined
-                }
-              >
-                <span className="shelf-file-icon">{it.kind === "file" ? "📄" : "📝"}</span>
-                <span
-                  className="shelf-file-name"
-                  title={it.kind === "file" ? it.path : it.text}
-                >
-                  {it.name}
-                </span>
-                <span className="shelf-item-actions">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void copyOne(it);
+          <div className="shelf-cards">
+            {items.map((it) => {
+              if (it.kind === "file") {
+                const m = fileMeta(it.name);
+                return (
+                  <div
+                    key={it.id}
+                    className="shelf-card kind-file"
+                    draggable
+                    title={it.path}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", it.path!);
+                      e.dataTransfer.setData("text/uri-list", fileUrl(it.path!));
                     }}
-                    title={it.kind === "file" ? "复制文件（粘贴到资源管理器）" : "复制文本"}
                   >
-                    ⧉
-                  </button>
-                  {it.kind === "file" ? (
-                    <>
+                    <button
+                      className="shelf-card-x"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        remove(it.id);
+                      }}
+                      title="移除"
+                    >
+                      ✕
+                    </button>
+                    <span className={`shelf-badge ext-${m.cat}`}>{m.badge}</span>
+                    <span className="shelf-card-name">{it.name}</span>
+                    <span className="shelf-card-meta">{m.type}</span>
+                    <div className="shelf-card-actions">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void copyOne(it);
+                        }}
+                        title="复制文件（粘贴到资源管理器）"
+                      >
+                        ⧉
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -376,9 +429,14 @@ function ShelfTile(_props: IslandModuleProps) {
                       >
                         📁
                       </button>
-                    </>
-                  ) : null}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={it.id} className="shelf-card kind-text" title={it.text}>
                   <button
+                    className="shelf-card-x"
                     onClick={(e) => {
                       e.stopPropagation();
                       remove(it.id);
@@ -387,10 +445,23 @@ function ShelfTile(_props: IslandModuleProps) {
                   >
                     ✕
                   </button>
-                </span>
-              </li>
-            ))}
-          </ul>
+                  <div className="shelf-text-body">{it.text}</div>
+                  <div className="shelf-text-foot">📝 文本片段 · {(it.text ?? "").trim().length} 字</div>
+                  <div className="shelf-card-actions">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void copyOne(it);
+                      }}
+                      title="复制文本"
+                    >
+                      ⧉
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
           <div className="shelf-bulk">
             <button

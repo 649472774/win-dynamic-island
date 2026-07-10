@@ -166,3 +166,10 @@ export function clipboardCopyText(text: string): Promise<void> {
 export function clipboardRead(): Promise<ClipboardData> {
   return invoke("clipboard_read");
 }
+
+/** Re-register the native OLE drop target on the current window + child HWNDs.
+ *  Called once on UI mount so file drag-in survives webview reloads (a Vite HMR
+ *  full reload can recreate WebView2's child HWND and orphan the drop target). */
+export function rearmDropTarget(): Promise<void> {
+  return invoke("rearm_drop_target");
+}

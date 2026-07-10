@@ -91,6 +91,7 @@ pub fn run() {
             clipboard::clipboard_copy_files,
             clipboard::clipboard_copy_text,
             clipboard::clipboard_read,
+            dragdrop::rearm_drop_target,
         ])
         .setup(|app| {
             let win = app
