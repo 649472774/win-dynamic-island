@@ -25,14 +25,14 @@ import { useShelfDrag } from "../modules/shelf";
 import SettingsPanel from "./SettingsPanel";
 import "../modules"; // ensure built-in modules register
 
-/** Target geometry per state, in CSS pixels. */
+/** Target geometry per state, in CSS pixels within the fixed WebView. */
 const SIZES: Record<IslandState, { w: number; h: number; r: number }> = {
   collapsed: { w: 220, h: 38, r: 19 },
-  hover: { w: 260, h: 44, r: 22 },
+  hover: { w: 260, h: 38, r: 19 },
   expanded: { w: 520, h: 384, r: 30 },
 };
 
-/** Geometry for a transient HUD (e.g. the volume slider) over the pill. */
+/** HUDs and expanded panels remain top-anchored. */
 const HUD_SIZE = { w: 300, h: 46, r: 23 };
 
 /** Spring tuned for a snappy ~250–320ms morph at 60fps. */

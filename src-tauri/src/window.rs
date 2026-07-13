@@ -26,8 +26,8 @@ use tauri::{Manager, PhysicalPosition, Runtime, WebviewWindow};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
-    CreateRoundRectRgn, GetWindowRgnBox, RedrawWindow, SetWindowRgn, RDW_ALLCHILDREN,
-    RDW_INVALIDATE,
+    CombineRgn, CreateRoundRectRgn, DeleteObject, GetWindowRgnBox, RedrawWindow, SetWindowRgn,
+    HGDIOBJ, RDW_ALLCHILDREN, RDW_INVALIDATE, RGN_DIFF,
 };
 #[cfg(windows)]
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
@@ -40,7 +40,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINEVENT_SKIPOWNPROCESS, WM_MOUSEACTIVATE, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
-/// Logical gap (in CSS pixels) between the top of the screen and the island.
+/// Logical gap between the top of the screen and the collapsed island.
 pub const TOP_MARGIN: f64 = 8.0;
 
 /// Remembers the last region we applied so the background monitor watcher can
@@ -50,7 +50,7 @@ pub struct RegionState {
     pub last: Mutex<Option<Region>>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub struct Region {
     pub x: i32,
     pub y: i32,
@@ -244,12 +244,13 @@ pub fn install_topmost_guard<R: Runtime>(window: &WebviewWindow<R>) {
     let _ = window;
 }
 
-/// Clip the window to a rounded rectangle. Everything outside becomes
-/// click-through and the Acrylic backdrop is shaped into the pill.
-pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
+fn apply_region_inner<R: Runtime>(window: &WebviewWindow<R>, r: Region, force: bool) {
     let previous = window
         .try_state::<RegionState>()
         .and_then(|state| *state.last.lock().expect("region mutex poisoned"));
+    if !force && previous == Some(r) {
+        return;
+    }
     let shrinking = previous.is_some_and(|previous| r.w < previous.w || r.h < previous.h);
 
     // Keep the non-content layers inside the main window at every intermediate
@@ -270,17 +271,19 @@ pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
             // synchronous redraw here causes visible stalls during glass morphs.
             // SetWindowRgn still takes ownership of the region handle.
             SetWindowRgn(hwnd, Some(rgn), false);
-            // Expanding a transparent WebView without any invalidation can leave
-            // its old clipped surface cached as an opaque pale rectangle. Queue a
-            // repaint for the HWND and WebView children; unlike SetWindowRgn's
-            // synchronous redraw this coalesces with Motion's next paint.
-            let update = rect(r);
-            let _ = RedrawWindow(
-                Some(hwnd),
-                Some(&update),
-                None,
-                RDW_INVALIDATE | RDW_ALLCHILDREN,
-            );
+            // Expanding a transparent WebView without invalidation can expose its
+            // stale clipped surface as an opaque pale rectangle. Repaint only the
+            // pixels the new rounded region added; invalidating the whole pill on
+            // every frame makes WebView2 repaint already-valid content and stalls
+            // the UI thread under CPU pressure.
+            if force {
+                // Lifecycle recovery may be repairing a live Windows region that
+                // differs from the cached geometry. Repaint the full target because
+                // the cached shape cannot describe which pixels Windows exposed.
+                invalidate_exposed_webview(hwnd, None, r);
+            } else if !shrinking {
+                invalidate_exposed_webview(hwnd, previous, r);
+            }
         }
     }
     #[cfg(not(windows))]
@@ -293,6 +296,64 @@ pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
         crate::glass::sync_region(window, r);
         crate::dragdrop::sync_region(window, r);
     }
+}
+
+/// Re-apply the interactive region after a lifecycle event.
+pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
+    apply_region_inner(window, r, true);
+}
+
+#[cfg(windows)]
+unsafe fn invalidate_exposed_webview(hwnd: HWND, previous: Option<Region>, current: Region) {
+    let current_diameter = (current.radius.max(0) * 2).max(1);
+    let exposed = CreateRoundRectRgn(
+        current.x,
+        current.y,
+        current.x + current.w,
+        current.y + current.h,
+        current_diameter,
+        current_diameter,
+    );
+    if exposed.0.is_null() {
+        let update = rect(current);
+        let _ = RedrawWindow(
+            Some(hwnd),
+            Some(&update),
+            None,
+            RDW_INVALIDATE | RDW_ALLCHILDREN,
+        );
+        return;
+    }
+
+    let mut has_exposed_pixels = true;
+    if let Some(previous) = previous {
+        let previous_diameter = (previous.radius.max(0) * 2).max(1);
+        let old = CreateRoundRectRgn(
+            previous.x,
+            previous.y,
+            previous.x + previous.w,
+            previous.y + previous.h,
+            previous_diameter,
+            previous_diameter,
+        );
+        if !old.0.is_null() {
+            // NULLREGION is 1. Treat an unexpected GDI error (0) as exposed so
+            // the safe repaint is retained rather than risking a pale surface.
+            has_exposed_pixels =
+                CombineRgn(Some(exposed), Some(exposed), Some(old), RGN_DIFF).0 != 1;
+            let _ = DeleteObject(HGDIOBJ(old.0));
+        }
+    }
+
+    if has_exposed_pixels {
+        let _ = RedrawWindow(
+            Some(hwnd),
+            None,
+            Some(exposed),
+            RDW_INVALIDATE | RDW_ALLCHILDREN,
+        );
+    }
+    let _ = DeleteObject(HGDIOBJ(exposed.0));
 }
 
 /// Re-assert the pill region if Windows has silently dropped or changed it.
@@ -389,7 +450,7 @@ pub fn center_top<R: Runtime>(window: &WebviewWindow<R>) {
 /// relative to the window's top-left. Called on mount and during morphs.
 #[tauri::command]
 pub fn set_island_region<R: Runtime>(window: WebviewWindow<R>, region: Region) {
-    apply_region(&window, region);
+    apply_region_inner(&window, region, false);
 }
 
 /// Re-center the island (e.g. after the user drags it to another monitor, or on
