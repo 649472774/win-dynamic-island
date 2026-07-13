@@ -25,7 +25,10 @@ use tauri::{Manager, PhysicalPosition, Runtime, WebviewWindow};
 #[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 #[cfg(windows)]
-use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, GetWindowRgnBox, SetWindowRgn};
+use windows::Win32::Graphics::Gdi::{
+    CreateRoundRectRgn, GetWindowRgnBox, RedrawWindow, SetWindowRgn, RDW_ALLCHILDREN,
+    RDW_INVALIDATE,
+};
 #[cfg(windows)]
 use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 #[cfg(windows)]
@@ -267,6 +270,17 @@ pub fn apply_region<R: Runtime>(window: &WebviewWindow<R>, r: Region) {
             // synchronous redraw here causes visible stalls during glass morphs.
             // SetWindowRgn still takes ownership of the region handle.
             SetWindowRgn(hwnd, Some(rgn), false);
+            // Expanding a transparent WebView without any invalidation can leave
+            // its old clipped surface cached as an opaque pale rectangle. Queue a
+            // repaint for the HWND and WebView children; unlike SetWindowRgn's
+            // synchronous redraw this coalesces with Motion's next paint.
+            let update = rect(r);
+            let _ = RedrawWindow(
+                Some(hwnd),
+                Some(&update),
+                None,
+                RDW_INVALIDATE | RDW_ALLCHILDREN,
+            );
         }
     }
     #[cfg(not(windows))]
