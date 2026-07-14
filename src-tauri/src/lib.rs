@@ -3,6 +3,7 @@ mod dragdrop;
 mod glass;
 mod media;
 mod system;
+mod timer;
 mod tray;
 mod volume;
 mod window;
@@ -93,6 +94,27 @@ pub fn run() {
             volume::get_volume,
             volume::set_volume,
             volume::set_muted,
+            timer::get_time_state,
+            timer::create_timer,
+            timer::start_timer,
+            timer::pause_timer,
+            timer::resume_timer,
+            timer::reset_timer,
+            timer::delete_timer,
+            timer::add_timer_time,
+            timer::start_stopwatch,
+            timer::pause_stopwatch,
+            timer::reset_stopwatch,
+            timer::add_stopwatch_lap,
+            timer::configure_pomodoro,
+            timer::start_pomodoro,
+            timer::pause_pomodoro,
+            timer::add_pomodoro_time,
+            timer::resume_pomodoro,
+            timer::reset_pomodoro,
+            timer::advance_pomodoro,
+            timer::mark_time_alert_shown,
+            timer::cancel_all_time_tasks,
             clipboard::clipboard_copy_files,
             clipboard::clipboard_copy_text,
             clipboard::clipboard_read,
@@ -149,6 +171,10 @@ pub fn run() {
             // Start the volume watcher (event-driven HUD).
             let volume_state = volume::init(app.handle());
             app.manage(volume_state);
+
+            // M6 time engine: persisted absolute anchors + deadline-driven worker.
+            let timer_state = timer::init(app.handle());
+            app.manage(timer_state);
 
             spawn_monitor_watcher(app.handle());
 

@@ -7,11 +7,14 @@ import "./nowplaying";
 import "./system";
 import "./volume";
 import "./shelf";
+import "./time";
 
 export {
   getActiveModules,
   getAllModules,
   getPrimaryModule,
+  getModuleById,
+  refreshModuleActivities,
   registerModule,
 } from "./registry";
-export type { IslandModule, IslandModuleProps } from "./types";
+export type { IslandModule, IslandModuleProps, ModuleActivity } from "./types";

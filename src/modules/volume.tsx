@@ -13,7 +13,7 @@ import { useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
-import { useIsland } from "../store/island";
+import { showTransientHud } from "../store/activities";
 import {
   getVolume,
   onVolumeChanged,
@@ -45,7 +45,18 @@ function ensureStarted(): void {
     .catch(() => {});
   void onVolumeChanged((info) => {
     useVolume.getState().set(info);
-    useIsland.getState().showHud("volume");
+    showTransientHud(
+      {
+        id: "hud:volume",
+        sourceId: "volume",
+        moduleId: "volume",
+        channel: "hud",
+        title: "音量",
+        icon: "◖))",
+        priority: 500,
+      },
+      1600,
+    );
   });
 }
 ensureStarted();
@@ -169,7 +180,9 @@ registerModule({
   title: "音量",
   // Panel-only + HUD: never owns the collapsed pill.
   priority: 40,
+  icon: "◖))",
   Tile: VolumeTile,
   Hud: VolumeHud,
+  hudSize: { w: 300, h: 46, r: 23 },
   isActive: () => false,
 });

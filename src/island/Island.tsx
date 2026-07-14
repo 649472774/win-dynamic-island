@@ -11,8 +11,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useIsland, type IslandState } from "../store/island";
 import { useModulesVersion } from "../store/modules";
+import { getActivitySnapshot, useActivities } from "../store/activities";
 import { useSettings } from "../store/settings";
 import {
   recenter,
@@ -20,9 +22,11 @@ import {
   setIslandRegion,
   type RegionPx,
 } from "../lib/native";
-import { getAllModules, getPrimaryModule } from "../modules";
+import { getAllModules, getModuleById, getPrimaryModule } from "../modules";
 import { useShelfDrag } from "../modules/shelf";
 import SettingsPanel from "./SettingsPanel";
+import ActivityRail from "./ActivityRail";
+import { TimeCenter } from "../modules/time";
 import "../modules"; // ensure built-in modules register
 
 /** Target geometry per state, in CSS pixels within the fixed WebView. */
@@ -32,9 +36,6 @@ const SIZES: Record<IslandState, { w: number; h: number; r: number }> = {
   expanded: { w: 520, h: 384, r: 30 },
 };
 
-/** HUDs and expanded panels remain top-anchored. */
-const HUD_SIZE = { w: 300, h: 46, r: 23 };
-
 /** Spring tuned for a snappy ~250–320ms morph at 60fps. */
 const MORPH: Transition = { type: "spring", stiffness: 380, damping: 32, mass: 0.9 };
 const FADE: Transition = { duration: 0.16, ease: "easeOut" };
@@ -43,9 +44,9 @@ export default function Island() {
   const state = useIsland((s) => s.state);
   const setState = useIsland((s) => s.setState);
   const toggleExpanded = useIsland((s) => s.toggleExpanded);
-  const settingsOpen = useIsland((s) => s.settingsOpen);
+  const panel = useIsland((s) => s.panel);
+  const openHome = useIsland((s) => s.openHome);
   const openSettings = useIsland((s) => s.openSettings);
-  const hud = useIsland((s) => s.hud);
   const dragActive = useIsland((s) => s.dragActive);
   const glassStatus = useSettings((s) => s.glassStatus);
   const glassActive = glassStatus.active;
@@ -54,6 +55,7 @@ export default function Island() {
   // Re-evaluate the active module set when a module's activeness flips (e.g.
   // music starts/stops) even if the island state itself hasn't changed.
   useModulesVersion((s) => s.v);
+  useActivities((s) => s.revision);
 
   // Always-on OS drag catcher: dragging files toward the island auto-expands it
   // into a drop target (Yoink-style), even while collapsed.
@@ -90,13 +92,18 @@ export default function Island() {
   const allModules = getAllModules();
   const tiles = allModules.filter((m) => m.Tile);
   const primary = getPrimaryModule();
+  const activitySnapshot = getActivitySnapshot();
+  const primaryActivity = activitySnapshot.base;
+  const preemption = activitySnapshot.preemption;
   const expanded = state === "expanded";
-  // A HUD overrides the collapsed / hover pill, but never the expanded panel.
-  const hudModule = hud ? allModules.find((m) => m.id === hud.kind) : undefined;
-  const showingHud = !expanded && !!hudModule?.Hud;
+  const hudModule = preemption ? getModuleById(preemption.moduleId) : undefined;
+  // Critical alerts preempt even an expanded panel; ordinary HUD feedback does not.
+  const showingHud =
+    !!hudModule?.Hud && (!expanded || (preemption?.priority ?? 0) >= 1000);
+  const hudSize = hudModule?.hudSize ?? { w: 300, h: 46, r: 23 };
 
   const size = showingHud
-    ? HUD_SIZE
+    ? hudSize
     : expanded
       ? { ...SIZES.expanded, h: expandedH }
       : SIZES[state];
@@ -180,6 +187,28 @@ export default function Island() {
     };
   }, [openSettings]);
 
+  useEffect(() => {
+    if (!expanded || panel === "home") return;
+    void getCurrentWindow()
+      .setFocus()
+      .then(() => {
+        pillRef.current
+          ?.querySelector<HTMLElement>("[data-panel-back]")
+          ?.focus();
+      })
+      .catch((error) => {
+        console.error("Failed to focus the expanded island panel", error);
+      });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      openHome();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded, openHome, panel]);
+
   const clearCollapse = () => {
     if (collapseTimer.current) {
       window.clearTimeout(collapseTimer.current);
@@ -245,7 +274,7 @@ export default function Island() {
         onUpdate={reportRegion}
       >
         <AnimatePresence initial={false}>
-          {expanded ? (
+          {expanded && !showingHud ? (
             <motion.div
               key="expanded"
               ref={measureExpanded}
@@ -260,17 +289,24 @@ export default function Island() {
                   <div className="shelf-drop-inner">📎 松开鼠标放入暂存架</div>
                 </div>
               )}
-              {settingsOpen ? (
+              {panel === "settings" ? (
                 <SettingsPanel />
+              ) : panel === "time" ? (
+                <TimeCenter />
               ) : (
                 <>
-                  {primary?.Expanded ? <primary.Expanded state={state} /> : null}
+                  <ActivityRail state={state} expanded />
+                  {primary?.Expanded ? (
+                    <primary.Expanded state={state} activityId={primaryActivity?.id} />
+                  ) : null}
 
                   <div className="module-grid">
-                    {tiles.map((m) => {
+                    {tiles
+                      .filter((module) => !(module.id === "time" && primary?.id === "time"))
+                      .map((m) => {
                       const Tile = m.Tile!;
                       return <Tile key={m.id} state={state} />;
-                    })}
+                      })}
                     {UPCOMING.map((m) => (
                       <div className="module-chip" key={m.id}>
                         <span className="chip-icon">{m.icon}</span>
@@ -284,7 +320,7 @@ export default function Island() {
             </motion.div>
           ) : showingHud ? (
             <motion.div
-              key={`hud-${hud!.kind}`}
+              key={`hud-${preemption!.id}`}
               className="pill-content hud"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -293,7 +329,7 @@ export default function Island() {
             >
               {(() => {
                 const HudView = hudModule!.Hud!;
-                return <HudView state={state} />;
+                return <HudView state={state} activityId={preemption!.id} />;
               })()}
             </motion.div>
           ) : (
@@ -305,7 +341,11 @@ export default function Island() {
               exit={{ opacity: 0 }}
               transition={FADE}
             >
-              {primary?.Collapsed ? <primary.Collapsed state={state} /> : null}
+              <ActivityRail state={state}>
+                {primary?.Collapsed ? (
+                  <primary.Collapsed state={state} activityId={primaryActivity?.id} />
+                ) : null}
+              </ActivityRail>
             </motion.div>
           )}
         </AnimatePresence>

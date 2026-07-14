@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
-import { registerModule } from "./registry";
+import { refreshModuleActivities, registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
 import { bumpModules } from "../store/modules";
 import {
@@ -126,6 +126,7 @@ const useNP = create<NPStore>((set, get) => ({
           graceTimer = undefined;
           if (!isPlaying(get().np)) {
             set({ active: false });
+            refreshModuleActivities("now-playing");
             bumpModules();
           }
         }, STOP_GRACE_MS);
@@ -141,7 +142,10 @@ const useNP = create<NPStore>((set, get) => ({
     set({ np: next, cover, active, coverOk: coverChanged ? false : get().coverOk });
     if (coverChanged) validateCover(cover);
     // Flip the collapsed-pill owner as soon as activeness changes.
-    if (prevActive !== active) bumpModules();
+    if (prevActive !== active) {
+      refreshModuleActivities("now-playing");
+      bumpModules();
+    }
   },
 }));
 
@@ -418,6 +422,8 @@ registerModule({
   title: "正在播放",
   // Above the clock (10) so music owns the collapsed pill while it's active.
   priority: 100,
+  icon: "♪",
+  channel: "ongoing",
   Collapsed: CollapsedNowPlaying,
   Expanded: ExpandedNowPlaying,
   isActive: () => useNP.getState().active,

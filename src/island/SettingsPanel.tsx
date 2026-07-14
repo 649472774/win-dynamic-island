@@ -6,6 +6,7 @@
  * island module, since it configures the shell itself.
  */
 import { useIsland } from "../store/island";
+import { refreshModuleActivities } from "../modules";
 import {
   GAUGE_ORDER,
   GLASS_INTENSITY_ORDER,
@@ -27,7 +28,7 @@ const GLASS_INTENSITY_LABEL: Record<GlassIntensity, string> = {
 };
 
 export default function SettingsPanel() {
-  const closeSettings = useIsland((s) => s.closeSettings);
+  const openHome = useIsland((s) => s.openHome);
   const loaded = useSettings((s) => s.loaded);
   const gaugeStyle = useSettings((s) => s.gaugeStyle);
   const setGaugeStyle = useSettings((s) => s.setGaugeStyle);
@@ -39,6 +40,12 @@ export default function SettingsPanel() {
   const glassPending = useSettings((s) => s.glassPending);
   const setGlassEnabled = useSettings((s) => s.setGlassEnabled);
   const setGlassIntensity = useSettings((s) => s.setGlassIntensity);
+  const timeEnabled = useSettings((s) => s.timeEnabled);
+  const setTimeEnabled = useSettings((s) => s.setTimeEnabled);
+  const timerDefaultMinutes = useSettings((s) => s.timerDefaultMinutes);
+  const setTimerDefaultMinutes = useSettings((s) => s.setTimerDefaultMinutes);
+  const timeSound = useSettings((s) => s.timeSound);
+  const setTimeSound = useSettings((s) => s.setTimeSound);
   const glassBusy = !loaded || glassPending;
 
   const glassDescription = !loaded
@@ -52,18 +59,20 @@ export default function SettingsPanel() {
           : "Windows 11 真实毛玻璃（技术预览）";
 
   return (
-    <div className="settings-panel">
+    <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
       <header className="panel-header">
         <span className="panel-title">设置</span>
         <button
           className="settings-close"
+          data-panel-back
           onClick={(e) => {
             e.stopPropagation();
-            closeSettings();
+            openHome();
           }}
           title="返回"
+          aria-label="返回主页"
         >
-          ✕
+          ←
         </button>
       </header>
 
@@ -84,6 +93,59 @@ export default function SettingsPanel() {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">计时活动</span>
+            <span className="settings-desc">在灵动岛显示计时器、秒表与番茄钟</span>
+          </div>
+          <button
+            className={`switch${timeEnabled ? " on" : ""}`}
+            role="switch"
+            aria-checked={timeEnabled}
+            onClick={() => {
+              setTimeEnabled(!timeEnabled);
+              queueMicrotask(() => refreshModuleActivities("time"));
+            }}
+            title={timeEnabled ? "已开启" : "已关闭"}
+          >
+            <span className="switch-knob" />
+          </button>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">默认计时</span>
+            <span className="settings-desc">新建计时器的默认分钟数</span>
+          </div>
+          <label className="settings-number">
+            <input
+              type="number"
+              min="1"
+              max="720"
+              value={timerDefaultMinutes}
+              onChange={(event) => setTimerDefaultMinutes(Number(event.target.value))}
+              aria-label="默认计时分钟"
+            />
+            <span>分钟</span>
+          </label>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">完成提示音</span>
+            <span className="settings-desc">计时活动到期时播放本地提示音</span>
+          </div>
+          <button
+            className={`switch${timeSound ? " on" : ""}`}
+            role="switch"
+            aria-checked={timeSound}
+            onClick={() => setTimeSound(!timeSound)}
+            title={timeSound ? "已开启" : "已静音"}
+          >
+            <span className="switch-knob" />
+          </button>
         </section>
 
         <section className="settings-row">
