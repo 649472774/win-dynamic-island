@@ -177,6 +177,100 @@ export function setMuted(muted: boolean): Promise<void> {
   return invoke("set_muted", { muted });
 }
 
+/* ------------------------------ Time (M6) ------------------------------ */
+
+export interface TimerTask {
+  id: string;
+  name: string;
+  durationMs: number;
+  remainingMs: number;
+  deadlineMs: number | null;
+  running: boolean;
+  completed: boolean;
+  alertShown: boolean;
+}
+
+export interface StopwatchState {
+  elapsedMs: number;
+  startedAtMs: number | null;
+  running: boolean;
+  lapsMs: number[];
+}
+
+export type PomodoroPhase = "work" | "shortBreak" | "longBreak";
+
+export interface PomodoroState {
+  phase: PomodoroPhase;
+  completedWorkSessions: number;
+  workMs: number;
+  shortBreakMs: number;
+  longBreakMs: number;
+  cyclesBeforeLongBreak: number;
+  remainingMs: number;
+  deadlineMs: number | null;
+  running: boolean;
+  completed: boolean;
+  alertShown: boolean;
+}
+
+export interface DueAlert {
+  activityId: string;
+  kind: "timer" | "pomodoro";
+  title: string;
+  dueAtMs: number;
+}
+
+export interface TimeState {
+  nowMs: number;
+  timers: TimerTask[];
+  stopwatch: StopwatchState;
+  pomodoro: PomodoroState;
+  pendingAlerts: DueAlert[];
+}
+
+const timeCommand = (command: string, args?: Record<string, unknown>) =>
+  invoke<TimeState>(command, args);
+
+export const getTimeState = () => timeCommand("get_time_state");
+export const createTimer = (name: string, durationMs: number) =>
+  timeCommand("create_timer", { name, durationMs });
+export const startTimer = (id: string) => timeCommand("start_timer", { id });
+export const pauseTimer = (id: string) => timeCommand("pause_timer", { id });
+export const resetTimer = (id: string) => timeCommand("reset_timer", { id });
+export const deleteTimer = (id: string) => timeCommand("delete_timer", { id });
+export const addTimerTime = (id: string, additionalMs: number) =>
+  timeCommand("add_timer_time", { id, additionalMs });
+export const startStopwatch = () => timeCommand("start_stopwatch");
+export const pauseStopwatch = () => timeCommand("pause_stopwatch");
+export const resetStopwatch = () => timeCommand("reset_stopwatch");
+export const addStopwatchLap = () => timeCommand("add_stopwatch_lap");
+export const configurePomodoro = (
+  workMs: number,
+  shortBreakMs: number,
+  longBreakMs: number,
+  cyclesBeforeLongBreak: number,
+) =>
+  timeCommand("configure_pomodoro", {
+    workMs,
+    shortBreakMs,
+    longBreakMs,
+    cyclesBeforeLongBreak,
+  });
+export const startPomodoro = () => timeCommand("start_pomodoro");
+export const pausePomodoro = () => timeCommand("pause_pomodoro");
+export const addPomodoroTime = (additionalMs: number) =>
+  timeCommand("add_pomodoro_time", { additionalMs });
+export const resetPomodoro = () => timeCommand("reset_pomodoro");
+export const advancePomodoro = () => timeCommand("advance_pomodoro");
+export const markTimeAlertShown = (activityId: string) =>
+  timeCommand("mark_time_alert_shown", { activityId });
+export const onTimeStateChanged = (cb: (state: TimeState) => void) =>
+  listen<TimeState>("time-state-changed", (event) => cb(event.payload));
+export const onTimeTaskDue = (cb: (alert: DueAlert) => void) =>
+  listen<DueAlert>("time-task-due", (event) => cb(event.payload));
+export const onTimeEngineError = (cb: (error: string) => void) =>
+  listen<string>("time-engine-error", (event) => cb(event.payload));
+
 /* ------------------------- Clipboard / Shelf (M4) ------------------------- */
 
 /** Files + text read off the clipboard (mirrors Rust `ClipboardData`). */

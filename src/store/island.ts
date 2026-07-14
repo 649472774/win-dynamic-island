@@ -6,6 +6,7 @@
 import { create } from "zustand";
 
 export type IslandState = "collapsed" | "hover" | "expanded";
+export type ExpandedPanel = "home" | "settings" | "time";
 
 /** A transient overlay shown briefly over the pill (e.g. the volume slider).
  *  `kind` maps to a module id whose `Hud` renderer draws it. */
@@ -17,12 +18,14 @@ interface IslandStore {
   state: IslandState;
   setState: (s: IslandState) => void;
   toggleExpanded: () => void;
-  /** Whether the expanded panel is showing the settings view. */
-  settingsOpen: boolean;
+  /** Current route within the expanded island. */
+  panel: ExpandedPanel;
+  /** Return to the expanded home surface. */
+  openHome: () => void;
   /** Expand the island and show the settings view. */
   openSettings: () => void;
-  /** Leave the settings view (stays expanded, back to modules). */
-  closeSettings: () => void;
+  /** Expand the island and show the dedicated Time Center. */
+  openTimeCenter: () => void;
   /** Currently shown transient HUD, or null. */
   hud: Hud | null;
   /** Flash a HUD of the given kind; auto-dismisses, resetting the timer if a
@@ -33,7 +36,7 @@ interface IslandStore {
    *  Forces the panel open and blocks collapse so the user can drop. */
   dragActive: boolean;
   /** Set the drag-active flag; turning it on force-expands the panel and drops
-   *  the settings view so the drop zone is front and center. */
+   *  focused routes so the drop zone is front and center. */
   setDragActive: (b: boolean) => void;
   /** Expand the island straight to the module grid (used to surface the shelf). */
   openShelf: () => void;
@@ -47,19 +50,20 @@ export const useIsland = create<IslandStore>((set, get) => ({
   state: "collapsed",
   setState: (s) => {
     if (get().state !== s) {
-      // Leaving the expanded panel always drops the settings view.
-      set(s === "expanded" ? { state: s } : { state: s, settingsOpen: false });
+      // Leaving the expanded panel always resets its internal route.
+      set(s === "expanded" ? { state: s } : { state: s, panel: "home" });
     }
   },
   toggleExpanded: () =>
     set(
       get().state === "expanded"
-        ? { state: "collapsed", settingsOpen: false }
+        ? { state: "collapsed", panel: "home" }
         : { state: "expanded" },
     ),
-  settingsOpen: false,
-  openSettings: () => set({ state: "expanded", settingsOpen: true }),
-  closeSettings: () => set({ settingsOpen: false }),
+  panel: "home",
+  openHome: () => set({ state: "expanded", panel: "home" }),
+  openSettings: () => set({ state: "expanded", panel: "settings" }),
+  openTimeCenter: () => set({ state: "expanded", panel: "time" }),
   hud: null,
   showHud: (kind) => {
     if (hudTimer !== null) window.clearTimeout(hudTimer);
@@ -80,8 +84,8 @@ export const useIsland = create<IslandStore>((set, get) => ({
   setDragActive: (b) =>
     set(
       b
-        ? { dragActive: true, state: "expanded", settingsOpen: false }
+        ? { dragActive: true, state: "expanded", panel: "home" }
         : { dragActive: false },
     ),
-  openShelf: () => set({ state: "expanded", settingsOpen: false }),
+  openShelf: () => set({ state: "expanded", panel: "home" }),
 }));

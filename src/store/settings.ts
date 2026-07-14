@@ -45,6 +45,9 @@ const store = new LazyStore("settings.json");
 const K_GAUGE = "gaugeStyle.v2";
 const K_GLASS = "glass.enabled.v1";
 const K_GLASS_INTENSITY = "glass.intensity.v1";
+const K_TIME_ENABLED = "time.enabled.v1";
+const K_TIMER_MINUTES = "time.defaultMinutes.v1";
+const K_TIME_SOUND = "time.sound.v1";
 
 const CSS_GLASS_STATUS: GlassStatus = {
   requested: false,
@@ -69,7 +72,7 @@ const persistenceGlobal = globalThis as typeof globalThis & SettingsPersistenceG
 
 function persistSetting(
   key: string,
-  value: GaugeStyle | GlassIntensity | boolean,
+  value: GaugeStyle | GlassIntensity | boolean | number,
 ): void {
   const previous =
     persistenceGlobal.__winDynamicIslandSettingsQueue ?? Promise.resolve();
@@ -102,6 +105,12 @@ interface SettingsStore {
   glassPending: boolean;
   setGlassEnabled: (on: boolean) => void;
   setGlassIntensity: (intensity: GlassIntensity) => void;
+  timeEnabled: boolean;
+  setTimeEnabled: (on: boolean) => void;
+  timerDefaultMinutes: number;
+  setTimerDefaultMinutes: (minutes: number) => void;
+  timeSound: boolean;
+  setTimeSound: (on: boolean) => void;
   /** Load persisted values + real autostart state. Call once on boot. */
   hydrate: () => Promise<void>;
 }
@@ -136,6 +145,22 @@ export const useSettings = create<SettingsStore>((set, get) => ({
   glassIntensity: DEFAULT_GLASS_INTENSITY,
   glassStatus: CSS_GLASS_STATUS,
   glassPending: false,
+  timeEnabled: true,
+  setTimeEnabled: (on) => {
+    set({ timeEnabled: on });
+    persistSetting(K_TIME_ENABLED, on);
+  },
+  timerDefaultMinutes: 10,
+  setTimerDefaultMinutes: (minutes) => {
+    const value = Math.max(1, Math.min(720, Math.round(minutes)));
+    set({ timerDefaultMinutes: value });
+    persistSetting(K_TIMER_MINUTES, value);
+  },
+  timeSound: true,
+  setTimeSound: (on) => {
+    set({ timeSound: on });
+    persistSetting(K_TIME_SOUND, on);
+  },
   setGlassEnabled: (on) => {
     const version = ++glassRequestVersion;
     set({
@@ -213,6 +238,23 @@ export const useSettings = create<SettingsStore>((set, get) => ({
         set({ autostart: on });
       } catch {
         /* ignore */
+      }
+      try {
+        const [timeEnabled, timerMinutes, timeSound] = await Promise.all([
+          store.get<boolean>(K_TIME_ENABLED),
+          store.get<number>(K_TIMER_MINUTES),
+          store.get<boolean>(K_TIME_SOUND),
+        ]);
+        set({
+          timeEnabled: timeEnabled !== false,
+          timerDefaultMinutes:
+            typeof timerMinutes === "number"
+              ? Math.max(1, Math.min(720, Math.round(timerMinutes)))
+              : 10,
+          timeSound: timeSound !== false,
+        });
+      } catch {
+        /* ignore — keep time defaults */
       }
 
       let glassEnabled = false;

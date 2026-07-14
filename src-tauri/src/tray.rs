@@ -8,9 +8,12 @@
 use tauri::{
     menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter,
+    AppHandle, Emitter, Manager,
 };
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+use crate::timer::TimerState;
 
 /// Build the tray icon and wire its menu/click handlers. Called once from setup.
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
@@ -63,7 +66,43 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.emit("autostart-changed", now);
             }
             "tray_quit" => {
-                app.exit(0);
+                let Some(timer) = app.try_state::<TimerState>() else {
+                    app.exit(0);
+                    return;
+                };
+                if !timer.has_running_tasks() {
+                    app.exit(0);
+                    return;
+                }
+                let app = app.clone();
+                app.dialog()
+                    .message("仍有计时任务正在运行。退出将取消全部计时器、秒表和番茄钟。")
+                    .title("确认退出")
+                    .kind(MessageDialogKind::Warning)
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "退出并取消".into(),
+                        "继续运行".into(),
+                    ))
+                    .show(move |confirmed| {
+                        if confirmed {
+                            let result = app
+                                .try_state::<TimerState>()
+                                .ok_or_else(|| "计时引擎尚未就绪".to_string())
+                                .and_then(|timer| timer.clear_all());
+                            if let Err(error) = result {
+                                app.dialog()
+                                    .message(format!(
+                                        "无法取消计时任务，应用将继续运行。\n\n{error}"
+                                    ))
+                                    .title("退出失败")
+                                    .kind(MessageDialogKind::Error)
+                                    .buttons(MessageDialogButtons::Ok)
+                                    .show(|_| {});
+                                return;
+                            }
+                            app.exit(0);
+                        }
+                    });
             }
             _ => {}
         })

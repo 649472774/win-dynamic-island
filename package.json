@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:activity": "node --test --experimental-strip-types src/activity/coordinator.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

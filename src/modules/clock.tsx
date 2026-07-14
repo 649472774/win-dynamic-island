@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { registerModule } from "./registry";
 import type { IslandModuleProps } from "./types";
+import { useIsland } from "../store/island";
 
 const pad = (n: number) => n.toString().padStart(2, "0");
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -32,12 +33,22 @@ function CollapsedClock(_: IslandModuleProps) {
 
 function ExpandedClock(_: IslandModuleProps) {
   const now = useNow();
+  const openTimeCenter = useIsland((state) => state.openTimeCenter);
   return (
     <div className="mod-clock-expanded">
-      <div className="big-time">
+      <button
+        className="big-time time-center-shortcut"
+        onClick={(event) => {
+          event.stopPropagation();
+          openTimeCenter();
+        }}
+        aria-label="打开计时中心"
+        title="打开计时中心"
+      >
         {pad(now.getHours())}:{pad(now.getMinutes())}
         <span className="seconds">{pad(now.getSeconds())}</span>
-      </div>
+        <span className="clock-time-arrow" aria-hidden="true">›</span>
+      </button>
       <div className="big-date">
         {now.getFullYear()} 年 {now.getMonth() + 1} 月 {now.getDate()} 日 ·{" "}
         {WEEKDAYS[now.getDay()]}
@@ -50,6 +61,8 @@ registerModule({
   id: "clock",
   title: "时钟",
   priority: 10,
+  icon: "◷",
+  channel: "ambient",
   Collapsed: CollapsedClock,
   Expanded: ExpandedClock,
 });
