@@ -4,6 +4,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export interface RegionPx {
   /** Physical-pixel offset from the window's top-left corner. */
@@ -31,6 +32,195 @@ export function revealIsland(): Promise<void> {
 /** Re-center the island on the top edge of the current primary display. */
 export function recenter(): Promise<void> {
   return invoke("recenter");
+}
+
+/* --------------------- Bluetooth device observation (M7) --------------------- */
+
+export type BluetoothServicePhase =
+  | "starting"
+  | "ready"
+  | "noDevice"
+  | "degraded"
+  | "unsupported"
+  | "stopped";
+
+export type BluetoothDeviceKind =
+  | "audio"
+  | "mouse"
+  | "keyboard"
+  | "pen"
+  | "gamepad"
+  | "phone"
+  | "wearable"
+  | "generic";
+
+export interface BluetoothDeviceSnapshot {
+  id: string;
+  name: string;
+  kind: BluetoothDeviceKind;
+  connected: boolean;
+  batteryPercent: number | null;
+}
+
+export interface BluetoothSnapshot {
+  phase: BluetoothServicePhase;
+  devices: BluetoothDeviceSnapshot[];
+  reason: string | null;
+}
+
+export type BluetoothTransitionPhase =
+  | "connected"
+  | "disconnected"
+  | "batteryUpdated"
+  | "lowBattery"
+  | "degraded"
+  | "watcherStopped";
+
+export interface BluetoothTransition {
+  id: string;
+  phase: BluetoothTransitionPhase;
+  atMs: number;
+  device: BluetoothDeviceSnapshot | null;
+  reason: string | null;
+}
+
+const BLUETOOTH_SERVICE_PHASES = new Set<string>([
+  "starting",
+  "ready",
+  "noDevice",
+  "degraded",
+  "unsupported",
+  "stopped",
+]);
+const BLUETOOTH_DEVICE_KINDS = new Set<string>([
+  "audio",
+  "mouse",
+  "keyboard",
+  "pen",
+  "gamepad",
+  "phone",
+  "wearable",
+  "generic",
+]);
+const BLUETOOTH_TRANSITION_PHASES = new Set<string>([
+  "connected",
+  "disconnected",
+  "batteryUpdated",
+  "lowBattery",
+  "degraded",
+  "watcherStopped",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+export function isBluetoothDeviceSnapshot(
+  value: unknown,
+): value is BluetoothDeviceSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.name === "string" &&
+    typeof value.kind === "string" &&
+    BLUETOOTH_DEVICE_KINDS.has(value.kind) &&
+    typeof value.connected === "boolean" &&
+    (value.batteryPercent === null ||
+      (typeof value.batteryPercent === "number" &&
+        Number.isInteger(value.batteryPercent) &&
+        value.batteryPercent >= 0 &&
+        value.batteryPercent <= 100))
+  );
+}
+
+export function isBluetoothSnapshot(value: unknown): value is BluetoothSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.phase === "string" &&
+    BLUETOOTH_SERVICE_PHASES.has(value.phase) &&
+    Array.isArray(value.devices) &&
+    value.devices.length <= 128 &&
+    value.devices.every(isBluetoothDeviceSnapshot) &&
+    isNullableString(value.reason)
+  );
+}
+
+export function isBluetoothTransition(
+  value: unknown,
+): value is BluetoothTransition {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.phase === "string" &&
+    BLUETOOTH_TRANSITION_PHASES.has(value.phase) &&
+    typeof value.atMs === "number" &&
+    Number.isFinite(value.atMs) &&
+    value.atMs >= 0 &&
+    (value.device === null || isBluetoothDeviceSnapshot(value.device)) &&
+    isNullableString(value.reason)
+  );
+}
+
+function requireBluetoothSnapshot(value: unknown): BluetoothSnapshot {
+  if (!isBluetoothSnapshot(value)) {
+    throw new Error("Native Bluetooth source returned an invalid status payload");
+  }
+  return value;
+}
+
+function requireBluetoothTransition(value: unknown): BluetoothTransition {
+  if (!isBluetoothTransition(value)) {
+    throw new Error("Native Bluetooth source returned an invalid transition payload");
+  }
+  return value;
+}
+
+export async function getBluetoothStatus(): Promise<BluetoothSnapshot> {
+  return requireBluetoothSnapshot(await invoke<unknown>("get_bluetooth_status"));
+}
+
+export async function setBluetoothObservation(
+  enabled: boolean,
+): Promise<BluetoothSnapshot> {
+  return requireBluetoothSnapshot(
+    await invoke<unknown>("set_bluetooth_observation", { enabled }),
+  );
+}
+
+export function onBluetoothStatus(
+  cb: (status: BluetoothSnapshot) => void,
+  onInvalid: (error: Error) => void,
+): Promise<UnlistenFn> {
+  return listen<unknown>("bluetooth-status", (event) => {
+    try {
+      cb(requireBluetoothSnapshot(event.payload));
+    } catch (error) {
+      onInvalid(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+export function onBluetoothTransition(
+  cb: (transition: BluetoothTransition) => void,
+  onInvalid: (error: Error) => void,
+): Promise<UnlistenFn> {
+  return listen<unknown>("bluetooth-transition", (event) => {
+    try {
+      cb(requireBluetoothTransition(event.payload));
+    } catch (error) {
+      onInvalid(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+export function openBluetoothSettings(): Promise<void> {
+  return openUrl("ms-settings:bluetooth");
 }
 
 /* ----------------------- Native glass underlay (M5A) ----------------------- */

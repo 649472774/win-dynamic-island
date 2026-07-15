@@ -6,6 +6,7 @@
  * island module, since it configures the shell itself.
  */
 import { useIsland } from "../store/island";
+import { openBluetoothSettings } from "../lib/native";
 import {
   GAUGE_ORDER,
   GLASS_INTENSITY_ORDER,
@@ -40,6 +41,20 @@ export default function SettingsPanel() {
   const setGlassEnabled = useSettings((s) => s.setGlassEnabled);
   const setGlassIntensity = useSettings((s) => s.setGlassIntensity);
   const glassBusy = !loaded || glassPending;
+  const bluetoothNotifications = useSettings((s) => s.bluetoothNotifications);
+  const bluetoothShowBattery = useSettings((s) => s.bluetoothShowBattery);
+  const bluetoothShowDeviceName = useSettings((s) => s.bluetoothShowDeviceName);
+  const bluetoothPending = useSettings((s) => s.bluetoothPending);
+  const setBluetoothNotifications = useSettings(
+    (s) => s.setBluetoothNotifications,
+  );
+  const setBluetoothShowBattery = useSettings(
+    (s) => s.setBluetoothShowBattery,
+  );
+  const setBluetoothShowDeviceName = useSettings(
+    (s) => s.setBluetoothShowDeviceName,
+  );
+  const bluetoothBusy = !loaded || bluetoothPending;
 
   const glassDescription = !loaded
     ? "正在读取本地设置"
@@ -84,6 +99,89 @@ export default function SettingsPanel() {
               </button>
             ))}
           </div>
+        </section>
+
+        <div className="settings-group-label">蓝牙设备提醒</div>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">启用蓝牙设备提醒</span>
+            <span className="settings-desc">观察已配对设备的连接状态</span>
+          </div>
+          <button
+            className={`switch${bluetoothNotifications ? " on" : ""}`}
+            role="switch"
+            aria-checked={bluetoothNotifications}
+            aria-label="启用蓝牙设备提醒"
+            disabled={bluetoothBusy}
+            onClick={() => setBluetoothNotifications(!bluetoothNotifications)}
+          >
+            <span className="switch-knob" />
+          </button>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">Windows 蓝牙设置</span>
+            <span className="settings-desc">配对与设备管理由 Windows 提供</span>
+          </div>
+          <button
+            type="button"
+            className="settings-escape-action"
+            aria-label="打开 Windows 蓝牙设置"
+            onClick={() => {
+              void openBluetoothSettings().catch((error) => {
+                console.error("Failed to open Windows Bluetooth settings", error);
+              });
+            }}
+          >
+            打开
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M7 17 17 7M8 7h9v9" />
+            </svg>
+          </button>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">显示电量</span>
+            <span className="settings-desc">仅在 Windows 提供电量时显示</span>
+          </div>
+          <button
+            className={`switch${bluetoothShowBattery ? " on" : ""}`}
+            role="switch"
+            aria-checked={bluetoothShowBattery}
+            aria-label="显示蓝牙设备电量"
+            disabled={bluetoothBusy || !bluetoothNotifications}
+            onClick={() => setBluetoothShowBattery(!bluetoothShowBattery)}
+          >
+            <span className="switch-knob" />
+          </button>
+        </section>
+
+        <section className="settings-row">
+          <div className="settings-label">
+            <span className="settings-name">显示设备名称</span>
+            <span className="settings-desc">关闭后使用鼠标、键盘等类别别名</span>
+          </div>
+          <button
+            className={`switch${bluetoothShowDeviceName ? " on" : ""}`}
+            role="switch"
+            aria-checked={bluetoothShowDeviceName}
+            aria-label="显示蓝牙设备名称"
+            disabled={bluetoothBusy || !bluetoothNotifications}
+            onClick={() => setBluetoothShowDeviceName(!bluetoothShowDeviceName)}
+          >
+            <span className="switch-knob" />
+          </button>
         </section>
 
         <section className="settings-row">
@@ -136,6 +234,7 @@ export default function SettingsPanel() {
             className={`switch${autostart ? " on" : ""}`}
             role="switch"
             aria-checked={autostart}
+            aria-label="开机自启"
             onClick={() => setAutostart(!autostart)}
             title={autostart ? "已开启" : "已关闭"}
           >

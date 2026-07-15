@@ -1,3 +1,4 @@
+mod bluetooth;
 mod clipboard;
 mod dragdrop;
 mod glass;
@@ -93,6 +94,8 @@ pub fn run() {
             volume::get_volume,
             volume::set_volume,
             volume::set_muted,
+            bluetooth::get_bluetooth_status,
+            bluetooth::set_bluetooth_observation,
             clipboard::clipboard_copy_files,
             clipboard::clipboard_copy_text,
             clipboard::clipboard_read,
@@ -135,6 +138,9 @@ pub fn run() {
             win.on_window_event(move |event| {
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     glass::shutdown(&glass_app);
+                    if let Some(state) = glass_app.try_state::<bluetooth::BluetoothState>() {
+                        bluetooth::shutdown(&state);
+                    }
                 }
             });
 
@@ -150,12 +156,25 @@ pub fn run() {
             let volume_state = volume::init(app.handle());
             app.manage(volume_state);
 
+            // Bluetooth observation starts only after persisted frontend settings
+            // explicitly enable it, so a disabled feature has no native watcher.
+            let bluetooth_state = bluetooth::init(app.handle());
+            app.manage(bluetooth_state);
+
             spawn_monitor_watcher(app.handle());
 
             // System tray icon + menu (设置 / 开机自启 / 退出).
             tray::init(app.handle())?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                glass::shutdown(app);
+                if let Some(state) = app.try_state::<bluetooth::BluetoothState>() {
+                    bluetooth::shutdown(&state);
+                }
+            }
+        });
 }

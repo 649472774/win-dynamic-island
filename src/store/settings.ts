@@ -17,10 +17,12 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import {
   onGlassStatusChanged,
+  setBluetoothObservation,
   setGlassEnabled as setNativeGlassEnabled,
   type GlassIntensity,
   type GlassStatus,
 } from "../lib/native";
+import { setBluetoothDegraded, useBluetooth } from "./bluetooth";
 
 /**
  * How the system-info meters (CPU / memory / battery) are drawn.
@@ -45,6 +47,9 @@ const store = new LazyStore("settings.json");
 const K_GAUGE = "gaugeStyle.v2";
 const K_GLASS = "glass.enabled.v1";
 const K_GLASS_INTENSITY = "glass.intensity.v1";
+const K_BLUETOOTH_NOTICES = "bluetooth.notifications.v1";
+const K_BLUETOOTH_BATTERY = "bluetooth.showBattery.v1";
+const K_BLUETOOTH_NAME = "bluetooth.showDeviceName.v1";
 
 const CSS_GLASS_STATUS: GlassStatus = {
   requested: false,
@@ -57,6 +62,7 @@ const CSS_GLASS_STATUS: GlassStatus = {
 
 let hydration: Promise<void> | null = null;
 let glassRequestVersion = 0;
+let bluetoothRequestVersion = 0;
 
 interface SettingsPersistenceGlobal {
   __winDynamicIslandSettingsQueue?: Promise<void>;
@@ -102,6 +108,15 @@ interface SettingsStore {
   glassPending: boolean;
   setGlassEnabled: (on: boolean) => void;
   setGlassIntensity: (intensity: GlassIntensity) => void;
+  /** Passive paired-Bluetooth lifecycle observation and presentation. */
+  bluetoothNotifications: boolean;
+  bluetoothShowBattery: boolean;
+  bluetoothShowDeviceName: boolean;
+  bluetoothSettingsError: string | null;
+  bluetoothPending: boolean;
+  setBluetoothNotifications: (on: boolean) => void;
+  setBluetoothShowBattery: (on: boolean) => void;
+  setBluetoothShowDeviceName: (on: boolean) => void;
   /** Load persisted values + real autostart state. Call once on boot. */
   hydrate: () => Promise<void>;
 }
@@ -196,12 +211,46 @@ export const useSettings = create<SettingsStore>((set, get) => ({
         }
       });
   },
+  bluetoothNotifications: true,
+  bluetoothShowBattery: true,
+  bluetoothShowDeviceName: true,
+  bluetoothSettingsError: null,
+  bluetoothPending: false,
+  setBluetoothNotifications: (on) => {
+    const version = ++bluetoothRequestVersion;
+    set({
+      bluetoothNotifications: on,
+      bluetoothSettingsError: null,
+      bluetoothPending: true,
+    });
+    persistSetting(K_BLUETOOTH_NOTICES, on);
+    void setBluetoothObservation(on)
+      .then((snapshot) => {
+        if (version !== bluetoothRequestVersion) return;
+        useBluetooth.getState().setSnapshot(snapshot);
+        set({ bluetoothPending: false });
+      })
+      .catch((error) => {
+        if (version !== bluetoothRequestVersion) return;
+        set({ bluetoothPending: false });
+        setBluetoothDegraded(`无法切换蓝牙状态观察：${String(error)}`);
+      });
+  },
+  setBluetoothShowBattery: (on) => {
+    set({ bluetoothShowBattery: on });
+    persistSetting(K_BLUETOOTH_BATTERY, on);
+  },
+  setBluetoothShowDeviceName: (on) => {
+    set({ bluetoothShowDeviceName: on });
+    persistSetting(K_BLUETOOTH_NAME, on);
+  },
   hydrate: async () => {
     if (get().loaded) return;
     if (hydration) return hydration;
 
     hydration = (async () => {
       const glassVersionAtStart = glassRequestVersion;
+      const bluetoothVersionAtStart = bluetoothRequestVersion;
       try {
         const g = await store.get<GaugeStyle>(K_GAUGE);
         if (g && (GAUGE_ORDER as string[]).includes(g)) set({ gaugeStyle: g });
@@ -217,6 +266,10 @@ export const useSettings = create<SettingsStore>((set, get) => ({
 
       let glassEnabled = false;
       let glassIntensity: GlassIntensity = DEFAULT_GLASS_INTENSITY;
+      let bluetoothNotifications = true;
+      let bluetoothShowBattery = true;
+      let bluetoothShowDeviceName = true;
+      const bluetoothReadErrors: string[] = [];
       try {
         glassEnabled = (await store.get<boolean>(K_GLASS)) === true;
       } catch {
@@ -232,6 +285,48 @@ export const useSettings = create<SettingsStore>((set, get) => ({
         }
       } catch {
         /* ignore — balanced remains the safe default */
+      }
+      try {
+        const saved = await store.get<boolean>(K_BLUETOOTH_NOTICES);
+        if (typeof saved === "boolean") bluetoothNotifications = saved;
+      } catch (error) {
+        bluetoothReadErrors.push(`无法读取蓝牙通知设置：${String(error)}`);
+      }
+      try {
+        const saved = await store.get<boolean>(K_BLUETOOTH_BATTERY);
+        if (typeof saved === "boolean") bluetoothShowBattery = saved;
+      } catch (error) {
+        bluetoothReadErrors.push(`无法读取蓝牙电量设置：${String(error)}`);
+      }
+      try {
+        const saved = await store.get<boolean>(K_BLUETOOTH_NAME);
+        if (typeof saved === "boolean") bluetoothShowDeviceName = saved;
+      } catch (error) {
+        bluetoothReadErrors.push(`无法读取蓝牙名称设置：${String(error)}`);
+      }
+      const bluetoothReadError = bluetoothReadErrors.join("；");
+      if (bluetoothReadError) bluetoothNotifications = false;
+      if (bluetoothVersionAtStart === bluetoothRequestVersion) {
+        set({
+          bluetoothNotifications,
+          bluetoothShowBattery,
+          bluetoothShowDeviceName,
+          bluetoothSettingsError: bluetoothReadError || null,
+          bluetoothPending: true,
+        });
+        try {
+          const snapshot = await setBluetoothObservation(bluetoothNotifications);
+          if (bluetoothVersionAtStart === bluetoothRequestVersion) {
+            if (bluetoothReadError) setBluetoothDegraded(bluetoothReadError);
+            else useBluetooth.getState().setSnapshot(snapshot);
+            set({ bluetoothPending: false });
+          }
+        } catch (error) {
+          if (bluetoothVersionAtStart === bluetoothRequestVersion) {
+            set({ bluetoothPending: false });
+            setBluetoothDegraded(`无法启动蓝牙状态观察：${String(error)}`);
+          }
+        }
       }
       // A caller may have changed glass while storage was being read (for
       // example through automation during startup). Never overwrite that newer

@@ -8,12 +8,26 @@
  * (stable WebView viewport) while giving us a real acrylic pill and automatic
  * click-through everywhere outside it.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, type Transition } from "motion/react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+  type Transition,
+} from "motion/react";
 import { listen } from "@tauri-apps/api/event";
 import { useIsland, type IslandState } from "../store/island";
 import { useModulesVersion } from "../store/modules";
 import { useSettings } from "../store/settings";
+import { useNotices } from "../store/notices";
+import { startBluetoothBridge } from "../store/bluetooth";
+import { handleBluetoothTransition } from "../store/bluetooth";
 import {
   recenter,
   revealIsland,
@@ -23,6 +37,8 @@ import {
 import { getAllModules, getPrimaryModule } from "../modules";
 import { useShelfDrag } from "../modules/shelf";
 import SettingsPanel from "./SettingsPanel";
+import { getNoticeRenderer } from "./noticeRenderers";
+import "./BluetoothStatus"; // register the transient Bluetooth notice renderer
 import "../modules"; // ensure built-in modules register
 
 /** Target geometry per state, in CSS pixels within the fixed WebView. */
@@ -34,10 +50,36 @@ const SIZES: Record<IslandState, { w: number; h: number; r: number }> = {
 
 /** HUDs and expanded panels remain top-anchored. */
 const HUD_SIZE = { w: 300, h: 46, r: 23 };
-
 /** Spring tuned for a snappy ~250–320ms morph at 60fps. */
 const MORPH: Transition = { type: "spring", stiffness: 380, damping: 32, mass: 0.9 };
 const FADE: Transition = { duration: 0.16, ease: "easeOut" };
+const NOTICE_MORPH: Transition = {
+  duration: 0.2,
+  ease: [0.22, 1, 0.36, 1],
+};
+const DEBUG_BLUETOOTH_KINDS = [
+  "mouse",
+  "keyboard",
+  "audio",
+  "gamepad",
+  "generic",
+  "pen",
+  "phone",
+  "wearable",
+] as const;
+const DEBUG_BLUETOOTH_NAMES: Record<
+  (typeof DEBUG_BLUETOOTH_KINDS)[number],
+  string
+> = {
+  mouse: "Surface Arc Mouse with an intentionally long device name",
+  keyboard: "Surface Keyboard",
+  audio: "Surface Headphones",
+  gamepad: "Xbox Wireless Controller",
+  generic: "Bluetooth Accessory",
+  pen: "Surface Pen",
+  phone: "Bluetooth Phone",
+  wearable: "Bluetooth Watch",
+};
 
 export default function Island() {
   const state = useIsland((s) => s.state);
@@ -45,12 +87,13 @@ export default function Island() {
   const toggleExpanded = useIsland((s) => s.toggleExpanded);
   const settingsOpen = useIsland((s) => s.settingsOpen);
   const openSettings = useIsland((s) => s.openSettings);
-  const hud = useIsland((s) => s.hud);
+  const notice = useNotices((s) => s.current);
   const dragActive = useIsland((s) => s.dragActive);
   const glassStatus = useSettings((s) => s.glassStatus);
   const glassActive = glassStatus.active;
   const glassFallback = glassStatus.requested && !glassStatus.active;
   const glassIntensity = useSettings((s) => s.glassIntensity);
+  const reduceMotion = useReducedMotion();
   // Re-evaluate the active module set when a module's activeness flips (e.g.
   // music starts/stops) even if the island state itself hasn't changed.
   useModulesVersion((s) => s.v);
@@ -92,11 +135,15 @@ export default function Island() {
   const primary = getPrimaryModule();
   const expanded = state === "expanded";
   // A HUD overrides the collapsed / hover pill, but never the expanded panel.
-  const hudModule = hud ? allModules.find((m) => m.id === hud.kind) : undefined;
-  const showingHud = !expanded && !!hudModule?.Hud;
+  const hudModule = notice
+    ? allModules.find((module) => module.id === notice.source)
+    : undefined;
+  const showingNotice = !expanded && !!notice;
+  const noticeRenderer = notice ? getNoticeRenderer(notice.source) : undefined;
+  const NoticeView = noticeRenderer?.Component;
 
-  const size = showingHud
-    ? HUD_SIZE
+  const size = showingNotice
+    ? (noticeRenderer?.size ?? HUD_SIZE)
     : expanded
       ? { ...SIZES.expanded, h: expandedH }
       : SIZES[state];
@@ -180,6 +227,28 @@ export default function Island() {
     };
   }, [openSettings]);
 
+  useEffect(() => {
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    void startBluetoothBridge(() => {
+      const settings = useSettings.getState();
+      return {
+        enabled: settings.bluetoothNotifications,
+        showBattery: settings.bluetoothShowBattery,
+        showDeviceName: settings.bluetoothShowDeviceName,
+        settingsError: settings.bluetoothSettingsError,
+      };
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else stop = cleanup;
+    });
+
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+
   const clearCollapse = () => {
     if (collapseTimer.current) {
       window.clearTimeout(collapseTimer.current);
@@ -224,7 +293,52 @@ export default function Island() {
     if (state !== "collapsed" && !useIsland.getState().dragActive) scheduleCollapse();
   };
 
-  const onClick = () => {
+  const onClick = (event: ReactMouseEvent) => {
+    if (import.meta.env.DEV && event.shiftKey) {
+      const debugKind =
+        DEBUG_BLUETOOTH_KINDS[
+          Math.min(
+            Math.max(event.detail, 1),
+            DEBUG_BLUETOOTH_KINDS.length,
+          ) - 1
+        ] ?? "mouse";
+      const phase =
+        event.detail > DEBUG_BLUETOOTH_KINDS.length
+          ? "batteryUpdated"
+          : event.ctrlKey
+            ? event.altKey
+              ? "degraded"
+              : "disconnected"
+            : event.altKey
+              ? "lowBattery"
+              : "connected";
+      const settings = useSettings.getState();
+      handleBluetoothTransition(
+        {
+          id: "debug-device",
+          phase,
+          atMs: Date.now(),
+          device:
+            phase === "degraded"
+              ? null
+              : {
+                  id: "debug-device",
+                  name: DEBUG_BLUETOOTH_NAMES[debugKind],
+                  kind: debugKind,
+                  connected: phase !== "disconnected",
+                  batteryPercent: phase === "lowBattery" ? 12 : 68,
+                },
+          reason:
+            phase === "degraded" ? "Deterministic debug watcher state" : null,
+        },
+        {
+          enabled: true,
+          showBattery: settings.bluetoothShowBattery,
+          showDeviceName: settings.bluetoothShowDeviceName,
+        },
+      );
+      return;
+    }
     clearCollapse();
     toggleExpanded();
   };
@@ -241,7 +355,13 @@ export default function Island() {
         onClick={onClick}
         initial={false}
         animate={{ width: size.w, height: size.h, borderRadius: size.r }}
-        transition={MORPH}
+        transition={
+          reduceMotion
+            ? { duration: 0.01 }
+            : showingNotice && noticeRenderer
+              ? NOTICE_MORPH
+              : MORPH
+        }
         onUpdate={reportRegion}
       >
         <AnimatePresence initial={false}>
@@ -265,7 +385,6 @@ export default function Island() {
               ) : (
                 <>
                   {primary?.Expanded ? <primary.Expanded state={state} /> : null}
-
                   <div className="module-grid">
                     {tiles.map((m) => {
                       const Tile = m.Tile!;
@@ -282,19 +401,27 @@ export default function Island() {
                 </>
               )}
             </motion.div>
-          ) : showingHud ? (
+          ) : showingNotice ? (
             <motion.div
-              key={`hud-${hud!.kind}`}
-              className="pill-content hud"
+              key={`notice-${notice!.source}-${notice!.kind}-${notice!.id}`}
+              className="pill-content hud notice"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={FADE}
             >
-              {(() => {
-                const HudView = hudModule!.Hud!;
-                return <HudView state={state} />;
-              })()}
+              {NoticeView ? (
+                <NoticeView notice={notice!} />
+              ) : hudModule?.Hud ? (
+                (() => {
+                  const HudView = hudModule.Hud;
+                  return <HudView state={state} />;
+                })()
+              ) : (
+                <div className="generic-notice" role="status">
+                  {notice!.source}
+                </div>
+              )}
             </motion.div>
           ) : (
             <motion.div

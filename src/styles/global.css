@@ -17,6 +17,8 @@
   --text-faint: rgba(255, 255, 255, 0.35);
   --accent: #57a6ff;
   --accent-soft: rgba(87, 166, 255, 0.16);
+  --warning: #ffbf66;
+  --disconnect: #c4cad4;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
@@ -136,6 +138,164 @@ body,
 .pill-content.hud {
   position: absolute;
   inset: 0;
+}
+
+/* ----------------------- Bluetooth device notices (M7) ------------------ */
+
+.bt-notice {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px 0 15px;
+}
+
+.bt-notice-icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.bt-notice-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+}
+
+.bt-notice-icon > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.bt-state-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid rgb(20, 20, 28);
+  background: var(--accent);
+  color: #06121f;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.bt-notice.phase-disconnected .bt-notice-icon,
+.bt-notice.phase-disconnected .bt-notice-state {
+  color: var(--disconnect);
+}
+
+.bt-notice.phase-disconnected .bt-notice-icon {
+  background: rgba(196, 202, 212, 0.12);
+}
+
+.bt-notice.phase-disconnected .bt-state-mark {
+  background: var(--disconnect);
+  color: #14161b;
+}
+
+.bt-notice.phase-low-battery .bt-notice-icon,
+.bt-notice.phase-low-battery .bt-notice-state,
+.bt-notice.phase-degraded .bt-notice-icon,
+.bt-notice.phase-degraded .bt-notice-state,
+.bt-notice.phase-error .bt-notice-icon,
+.bt-notice.phase-error .bt-notice-state {
+  color: var(--warning);
+}
+
+.bt-notice.phase-low-battery .bt-notice-icon,
+.bt-notice.phase-degraded .bt-notice-icon,
+.bt-notice.phase-error .bt-notice-icon {
+  background: rgba(255, 191, 102, 0.13);
+}
+
+.bt-notice.phase-low-battery .bt-state-mark,
+.bt-notice.phase-degraded .bt-state-mark,
+.bt-notice.phase-error .bt-state-mark {
+  background: var(--warning);
+  color: #21160a;
+}
+
+.bt-notice-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bt-notice-copy {
+  gap: 1px;
+}
+
+.bt-notice-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.bt-notice-name {
+  font-size: 13px;
+  line-height: 17px;
+}
+
+.bt-notice-state {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bt-notice-dismiss {
+  appearance: none;
+  border: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.bt-notice-dismiss {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 15px;
+  opacity: 0.72;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.bt-notice-dismiss:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.09);
+  opacity: 1;
+}
+
+.generic-notice {
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 12px;
 }
 
 /* Uniform 16px padding: with the 30px frame radius and the 14px album-cover
@@ -964,6 +1124,13 @@ body,
   gap: 6px;
 }
 
+.settings-group-label {
+  padding: 5px 4px 1px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .settings-row {
   display: flex;
   align-items: center;
@@ -995,6 +1162,37 @@ body,
 
 .settings-desc.degraded {
   color: #f2b84b;
+}
+
+.settings-escape-action {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.settings-escape-action:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.settings-escape-action svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* Segmented control (gauge style picker). */
@@ -1077,6 +1275,55 @@ body,
 
 .switch.on .switch-knob {
   transform: translateX(18px);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bt-notice-dismiss,
+  .settings-escape-action,
+  .switch,
+  .switch-knob {
+    transition-duration: 0.01ms;
+  }
+}
+
+@media (forced-colors: active) {
+  .island-pill,
+  .settings-row {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .bt-notice-icon,
+  .bt-notice-state,
+  .bt-state-mark {
+    color: CanvasText;
+    background: Canvas;
+  }
+
+  .bt-state-mark,
+  .settings-escape-action,
+  .switch,
+  .switch-knob {
+    border: 1px solid CanvasText;
+  }
+
+  .switch.on {
+    background: Highlight;
+  }
+
+  button:focus-visible {
+    outline-color: Highlight;
+  }
 }
 
 /* ------------------------------- Shelf --------------------------------- */
